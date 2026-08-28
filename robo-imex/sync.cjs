@@ -130,18 +130,27 @@ async function enviar(tipo, rows) {
     log(`sincronizando ${lista.length} mês(es): ${lista.map(m => m.competencia.slice(0,7)).join(', ')}`);
 
     // ---- vendas
+    const num = v => (v === null || v === undefined || isNaN(v)) ? 0 : +Number(v).toFixed(2);
     const vendas = [];
     for (const m of lista) {
       const d = await gql(Q_VENDAS, { a: m.ini, b: m.fim, f: [FILIAL] });
       const obs = `Imex/XPert · filial ${FILIAL} · ${m.competencia.slice(0,7)}${m.parcial ? ` (parcial ate ${m.fim})` : ''}`;
-      if (d.c) vendas.push({ competencia:m.competencia, segmento:'combustiveis',
-        faturamento_bruto:+d.c.faturamento.toFixed(2), custo_mercadoria:+d.c.custo.toFixed(2),
-        volume_litros:+d.c.qtde.toFixed(2), observacoes:obs });
-      if (d.p) vendas.push({ competencia:m.competencia, segmento:'conveniencia',
-        faturamento_bruto:+d.p.faturamento.toFixed(2), custo_mercadoria:+d.p.custo.toFixed(2),
-        volume_litros:+d.p.qtde.toFixed(2), observacoes:obs + ' (pista/loja)' });
-      const lb = (d.c?.faturamento||0)+(d.p?.faturamento||0) - (d.c?.custo||0)-(d.p?.custo||0);
-      log(`  ${m.competencia.slice(0,7)}  faturamento ${brl((d.c?.faturamento||0)+(d.p?.faturamento||0))}  ·  lucro bruto ${brl(lb)}`);
+
+      const c = { fat:num(d.c?.faturamento), cus:num(d.c?.custo), qtd:num(d.c?.qtde) };
+      const p = { fat:num(d.p?.faturamento), cus:num(d.p?.custo), qtd:num(d.p?.qtde) };
+
+      // mes sem movimento (posto ainda nao operava, por exemplo) — pula
+      if (!c.fat && !c.cus && !p.fat && !p.cus) {
+        log(`  ${m.competencia.slice(0,7)}  sem movimento no Imex — ignorado`);
+        continue;
+      }
+      if (c.fat || c.cus) vendas.push({ competencia:m.competencia, segmento:'combustiveis',
+        faturamento_bruto:c.fat, custo_mercadoria:c.cus, volume_litros:c.qtd, observacoes:obs });
+      if (p.fat || p.cus) vendas.push({ competencia:m.competencia, segmento:'conveniencia',
+        faturamento_bruto:p.fat, custo_mercadoria:p.cus, volume_litros:p.qtd, observacoes:obs + ' (pista/loja)' });
+
+      const lb = (c.fat + p.fat) - (c.cus + p.cus);
+      log(`  ${m.competencia.slice(0,7)}  faturamento ${brl(c.fat + p.fat)}  ·  lucro bruto ${brl(lb)}`);
     }
     const rv = await enviar('vendas', vendas);
     log(`vendas: ${vendas.length} linha(s) enviada(s)${rv.gravados ? ` · ${rv.gravados} gravada(s)` : ''}`);
@@ -151,11 +160,14 @@ async function enviar(tipo, rows) {
     for (const m of lista) {
       const d = await gql(Q_CONTAS_PAGAR, { filial:[FILIAL], tipoConta:0, vinculado:0,
         dataInicial:m.ini, dataFinal:m.fim, usarPeriodo:true, tipoData:0, page:1, offset:20000 });
-      const rows = (d.getContasPagar || []).map(x => {
-        const [cod, nome] = mapa[x.idPlanoDeContas] || ['?', '?'];
-        return { erp_id:x.idContasPagar, filial:FILIAL, data:x.dtaContaBr, conta_codigo:cod,
-                 conta_nome:nome, fornecedor:x.nomeEntidade, historico:x.historico, valor:x.valor };
-      });
+      const rows = (d.getContasPagar || [])
+        .filter(x => x && x.dtaContaBr && x.valor != null)
+        .map(x => {
+          const [cod, nome] = mapa[x.idPlanoDeContas] || ['?', '?'];
+          return { erp_id:x.idContasPagar, filial:FILIAL, data:x.dtaContaBr, conta_codigo:cod,
+                   conta_nome:nome, fornecedor:x.nomeEntidade || '', historico:x.historico || '',
+                   valor:Number(x.valor) };
+        });
       log(`  ${m.competencia.slice(0,7)}  ${rows.length} lançamento(s) no contas a pagar`);
       despesas = despesas.concat(rows);
     }
