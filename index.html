@@ -360,10 +360,21 @@ tfoot td{padding:12px 14px;background:var(--surface-2);font-weight:700;border-to
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.58.0/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script src="app.js"></script>
+<script src="app.js?v=19cc265b"></script>
 <script>
 if ('serviceWorker' in navigator) {
-  addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(()=>{}));
+  let recarregando = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (recarregando) return;
+    recarregando = true;
+    location.reload();          // versao nova assumiu: recarrega uma vez
+  });
+  addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').then(reg => {
+      reg.update();
+      setInterval(() => reg.update(), 60 * 60 * 1000);
+    }).catch(()=>{});
+  });
 }
 </script>
 </body>
