@@ -682,9 +682,11 @@ async function pageAportes(){
     type:'bar',
     data:{ labels: meses.map(monthLabel), datasets: S.socios.map((s,i)=>({
       label:s.nome, data: meses.map(k=>sum(rows.filter(r=>r.socio_id===s.id && monthKey(r.data)===k))),
-      backgroundColor: s.cor||PAL[i], borderColor:INK.surface, borderWidth:2, borderRadius:4, maxBarThickness:30 }))},
+      backgroundColor: s.cor||PAL[i], borderColor:INK.surface, borderWidth:1, borderRadius:4, maxBarThickness:26 }))},
     options:{ plugins:{legend:{display:false}, tooltip:tooltipCfg}, interaction:{mode:'index',intersect:false},
-      scales:{ x:{...axisCat, stacked:true}, y:{...axisMoney, stacked:true, beginAtZero:true} } }
+      // barras lado a lado: fica facil comparar um socio com o outro no mesmo mes
+      datasets:{ bar:{ categoryPercentage:0.7, barPercentage:0.9 } },
+      scales:{ x:{...axisCat, stacked:false}, y:{...axisMoney, stacked:false, beginAtZero:true} } }
   });
   S.charts.apTipo = new Chart($('#chApTipo'), {
     type:'doughnut',
@@ -774,9 +776,11 @@ async function pageRetiradas(){
     type:'bar',
     data:{ labels: meses.map(monthLabel), datasets: S.socios.map((s,i)=>({
       label:s.nome, data: meses.map(k=>sum(rows.filter(r=>r.socio_id===s.id && monthKey(r.data)===k))),
-      backgroundColor: s.cor||PAL[i], borderColor:INK.surface, borderWidth:2, borderRadius:4, maxBarThickness:30 }))},
+      backgroundColor: s.cor||PAL[i], borderColor:INK.surface, borderWidth:1, borderRadius:4, maxBarThickness:26 }))},
     options:{ plugins:{legend:{display:false}, tooltip:tooltipCfg}, interaction:{mode:'index',intersect:false},
-      scales:{ x:{...axisCat, stacked:true}, y:{...axisMoney, stacked:true, beginAtZero:true} } }
+      // barras lado a lado: fica facil comparar um socio com o outro no mesmo mes
+      datasets:{ bar:{ categoryPercentage:0.7, barPercentage:0.9 } },
+      scales:{ x:{...axisCat, stacked:false}, y:{...axisMoney, stacked:false, beginAtZero:true} } }
   });
   S.charts.reTipo = new Chart($('#chReTipo'), {
     type:'doughnut',
