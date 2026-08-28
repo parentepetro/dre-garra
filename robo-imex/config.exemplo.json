@@ -1,0 +1,13 @@
+{
+  "_leia": "Copie este arquivo para config.json e preencha usuario e senha do Imex. O config.json NAO vai para o GitHub.",
+
+  "erp_url":       "http://10.1.0.201:4000",
+  "filial":        16282,
+  "matriz":        14420,
+
+  "imex_usuario":  "SEU_USUARIO_DO_IMEX",
+  "imex_senha":    "SUA_SENHA_DO_IMEX",
+
+  "painel_url":    "https://xqranvotievwkoohsznq.supabase.co/functions/v1/ingest-erp",
+  "painel_token":  "325g53Oiq1BnueRH6eDUgq6EIbk40bsVq7s6hHsp4uo"
+}
