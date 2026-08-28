@@ -64,7 +64,7 @@ fi
 echo
 echo "  Testando a conexao com o Imex (sem gravar nada)..."
 echo "----------------------------------------------"
-if ! node sync.js --teste; then
+if ! node sync.cjs --teste; then
   echo "----------------------------------------------"
   echo "  X  o teste falhou. Se a mensagem acima fala de usuario ou senha,"
   echo "     apague o config.json e rode este instalador de novo."
@@ -79,7 +79,7 @@ echo "  ok  leitura do Imex funcionando"
 echo
 read -r -p "  Sincronizar agora os ultimos 6 meses? [S/n] " R
 if [[ ! "$R" =~ ^[Nn] ]]; then
-  node sync.js --meses 6 || { echo "  X  falhou na sincronizacao"; read -n 1 -s -r -p "Tecla para fechar."; exit 1; }
+  node sync.cjs --meses 6 || { echo "  X  falhou na sincronizacao"; read -n 1 -s -r -p "Tecla para fechar."; exit 1; }
 fi
 
 # ---------- 6. agendamento ----------
@@ -99,7 +99,7 @@ if [[ ! "$R" =~ ^[Nn] ]]; then
   <key>ProgramArguments</key>
   <array>
     <string>$NODE</string>
-    <string>$AQUI/sync.js</string>
+    <string>$AQUI/sync.cjs</string>
   </array>
   <key>WorkingDirectory</key><string>$AQUI</string>
   <key>StartInterval</key><integer>3600</integer>

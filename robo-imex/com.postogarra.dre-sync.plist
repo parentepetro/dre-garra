@@ -7,7 +7,7 @@
   <array>
     <string>/usr/bin/env</string>
     <string>node</string>
-    <string>REPLACE_COM_O_CAMINHO/robo-imex/sync.js</string>
+    <string>REPLACE_COM_O_CAMINHO/robo-imex/sync.cjs</string>
   </array>
   <key>StartInterval</key>    <integer>3600</integer>
   <key>RunAtLoad</key>        <true/>

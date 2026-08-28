@@ -21,7 +21,7 @@ O `config.json` fica só na máquina — ele está no `.gitignore` e nunca sobe 
 ## 2. Testar antes de valer
 
 ```bash
-node sync.js --teste
+node sync.cjs --teste
 ```
 
 Mostra o que ele leu do Imex e o que gravaria, **sem gravar nada**.
@@ -30,8 +30,8 @@ Se os números baterem com o ERP, pode seguir.
 ## 3. Rodar de verdade
 
 ```bash
-node sync.js               # mês atual + mês anterior
-node sync.js --meses 6     # últimos 6 meses (use na primeira carga)
+node sync.cjs               # mês atual + mês anterior
+node sync.cjs --meses 6     # últimos 6 meses (use na primeira carga)
 ```
 
 Rodar de novo não duplica: cada lançamento tem o id do Imex, então o painel
