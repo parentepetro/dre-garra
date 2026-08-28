@@ -402,7 +402,13 @@ const moneyShort = v => {
   if (a >= 1e3) return (n/1e3).toLocaleString('pt-BR',{maximumFractionDigits:0})+' mil';
   return NUM.format(n);
 };
-const pct = (a,b) => !b ? '—' : (a/b*100).toLocaleString('pt-BR',{maximumFractionDigits:1})+'%';
+const pct = (a,b) => {
+  if (!b) return '—';
+  const v = a/b*100;
+  // mostra mais casas quando arredondar esconderia que existe algo ali
+  const casas = (v > 0 && v < 0.1) || (v < 100 && v >= 99.9) ? 2 : 1;
+  return v.toLocaleString('pt-BR',{maximumFractionDigits:casas})+'%';
+};
 
 const today = () => new Date();
 const iso = d => {
@@ -430,8 +436,15 @@ function parseMoney(str){
   let s = String(str).replace(/[R$\s ]/gi,'').trim();
   let neg = /^\(.*\)$/.test(s) || /-$/.test(s) || /^-/.test(s);
   s = s.replace(/[()\-]/g,'');
-  if (s.includes(',') && s.includes('.')) s = s.lastIndexOf(',') > s.lastIndexOf('.') ? s.replace(/\./g,'').replace(',','.') : s.replace(/,/g,'');
-  else if (s.includes(',')) s = s.replace(/\./g,'').replace(',','.');
+  if (s.includes(',') && s.includes('.')) {
+    // tem os dois: o ultimo que aparecer e o separador decimal
+    s = s.lastIndexOf(',') > s.lastIndexOf('.') ? s.replace(/\./g,'').replace(',','.') : s.replace(/,/g,'');
+  } else if (s.includes(',')) {
+    s = s.replace(/\./g,'').replace(',','.');
+  } else if (/^\d{1,3}(\.\d{3})+$/.test(s)) {
+    // so pontos, em grupos de 3: e separador de milhar (70.000 = setenta mil)
+    s = s.replace(/\./g,'');
+  }
   const n = parseFloat(s);
   if (isNaN(n)) return 0;
   return neg ? -n : n;
