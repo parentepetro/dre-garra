@@ -254,9 +254,29 @@ function openModal({title, sub='', body, footer, wide=false, onMount}){
   $('#backdrop').classList.add('on');
   m.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click', closeModal));
   onMount && onMount(m);
+  formatarCampos(m);
   const first = m.querySelector('.modal-b input,.modal-b select,.modal-b textarea');
   first && setTimeout(()=>first.focus(), 60);
 }
+/* Campos de valor: sempre com duas casas decimais ao sair do campo.
+   Digite 1000 e vira 1.000,00; digite 1000,5 e vira 1.000,50. */
+function formatarCampos(root){
+  root.querySelectorAll('[data-money], input[inputmode="decimal"]').forEach(el=>{
+    if (el.dataset.fmt) return;
+    el.dataset.fmt = '1';
+    el.addEventListener('focus', () => setTimeout(()=>el.select(), 0));
+    el.addEventListener('keypress', e => {
+      if (e.key.length === 1 && !/[\d.,\-]/.test(e.key)) e.preventDefault();
+    });
+    el.addEventListener('blur', () => {
+      const t = el.value.trim();
+      if (!t) return;
+      const n = parseMoney(t);
+      el.value = isNaN(n) ? '' : NUM.format(n);
+    });
+  });
+}
+
 function closeModal(){ $('#backdrop').classList.remove('on'); $('#modal').innerHTML=''; }
 $('#backdrop').addEventListener('mousedown', e => { if (e.target.id==='backdrop') closeModal(); });
 document.addEventListener('keydown', e => { if (e.key==='Escape') closeModal(); });
@@ -561,7 +581,7 @@ async function pageDashboard(){
 /* ============================================================
    RÓTULOS
    ============================================================ */
-const TIPO_APORTE = { dinheiro:'Dinheiro', carta_credito:'Carta de crédito', investimento:'Investimento', emprestimo:'Empréstimo', outro:'Outro' };
+const TIPO_APORTE = { dinheiro:'Dinheiro', capital_giro:'Capital de giro', carta_credito:'Carta de crédito', investimento:'Investimento', emprestimo:'Empréstimo', outro:'Outro' };
 const TIPO_RETIRADA = { pro_labore:'Pró-labore', lucro:'Distribuição de lucro', adiantamento:'Adiantamento', reembolso:'Reembolso', outro:'Outro' };
 const STATUS_DESP = { pago:'Pago', a_pagar:'A pagar', cancelado:'Cancelado' };
 const STATUS_COR = { pago:'var(--good)', a_pagar:'var(--warning)', cancelado:'var(--text-muted)' };
@@ -1880,8 +1900,8 @@ function formRegra(r={}){
       ${fld('Ordem', inp('ordem','text', r.ordem!=null?r.ordem:'150', 'inputmode="numeric"'))}
       ${fld('Aplica em', sel('aplica_em',[{v:'ambos',t:'Todos os lançamentos'},{v:'credito',t:'Somente entradas'},{v:'debito',t:'Somente saídas'}], r.aplica_em||'credito'))}
       ${fld('Texto no histórico', inp('padrao','text', r.padrao, 'placeholder="pix|qr code — deixe vazio para qualquer histórico"'), 'full')}
-      ${fld('Valor máximo', inp('valor_max','text', r.valor_max!=null?r.valor_max:'', 'inputmode="decimal" placeholder="opcional"'))}
-      ${fld('Valor mínimo', inp('valor_min','text', r.valor_min!=null?r.valor_min:'', 'inputmode="decimal" placeholder="opcional"'))}
+      ${fld('Valor máximo', inp('valor_max','text', r.valor_max!=null?NUM.format(r.valor_max):'', 'data-money="1" inputmode="decimal" placeholder="opcional"'))}
+      ${fld('Valor mínimo', inp('valor_min','text', r.valor_min!=null?NUM.format(r.valor_min):'', 'data-money="1" inputmode="decimal" placeholder="opcional"'))}
       ${fld('Classifica como', sel('natureza', nats, r.natureza||'venda_pix'))}
       ${fld('Tratamento na tela', sel('agrupar',[{v:'true',t:'Agrupar por dia (venda)'},{v:'false',t:'Mostrar linha a linha'}], String(!!r.agrupar)))}
       ${fld('Situação', sel('ativo',[{v:'true',t:'Ativa'},{v:'false',t:'Inativa'}], String(r.ativo!==false)))}

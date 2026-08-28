@@ -1,4 +1,4 @@
-const CACHE = 'dre-garra-v1';
+const CACHE = 'dre-garra-v19cc265b';
 const SHELL = ['./', './index.html', './app.js', './manifest.webmanifest',
                './icon-192.png', './icon-512.png'];
 
