@@ -1046,7 +1046,7 @@ function importPdfDespesas(){
         ${svg(I.up,32)}
         <b>Solte o PDF aqui ou clique para escolher</b>
         <small>Relatório de despesas, boletos, fatura ou extrato em PDF</small>
-        <input type="file" id="file" accept="application/pdf" hidden>
+        <input type="file" id="file" hidden>
       </div>
       <div id="pdfStatus" style="margin-top:14px"></div>`,
     footer:`<button class="btn ghost" data-close>Cancelar</button>`,
