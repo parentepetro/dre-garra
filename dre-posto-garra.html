@@ -1721,14 +1721,19 @@ const diasDe = s => {
 };
 
 async function pageReceber(){
-  const R = S.sub.rec = S.sub.rec || { vis:'cliente' };
+  const R = S.sub.rec = S.sub.rec || { vis:'cliente', usarPeriodo:false };
+  if (R.usarPeriodo === undefined) R.usarPeriodo = false;
 
   let q = sb.from('contas_receber').select('*')
     .in('situacao', ['aberto','parcial'])
     .gt('valor_aberto', 0)
     .order('data', { ascending:false });
-  if (S.from) q = q.gte('data', S.from);
-  if (S.to)   q = q.lte('data', S.to);
+  // por padrao mostra TUDO que esta em aberto, mesmo de anos anteriores —
+  // titulo antigo esquecido e justamente o que nao pode sumir da tela
+  if (R.usarPeriodo) {
+    if (S.from) q = q.gte('data', S.from);
+    if (S.to)   q = q.lte('data', S.to);
+  }
   const { data, error } = await q;
   if (error) throw error;
   const rows = data || [];
@@ -1768,6 +1773,24 @@ async function pageReceber(){
       ${tile('Maior devedor', porCliente[0] ? money(porCliente[0].v) : '—',
              porCliente[0] ? esc(porCliente[0].cliente) : '', PAL[4])}
     </div>
+
+    <div class="card" style="margin-bottom:16px"><div class="card-b" style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+      <div style="flex:1;min-width:280px">
+        <label style="display:flex;gap:9px;align-items:flex-start;cursor:pointer">
+          <input type="checkbox" id="cbPer" ${R.usarPeriodo?'checked':''} style="margin-top:2px;width:16px;height:16px;accent-color:var(--s1)">
+          <span>
+            <b style="font-size:13px">Limitar ao período escolhido lá em cima</b>
+            <span style="display:block;font-size:12px;color:var(--text-muted);margin-top:2px">
+              Desmarcado, a tela mostra <b>tudo que está em aberto</b>, de qualquer data — inclusive título antigo,
+              que é o que não pode sumir da cobrança.</span>
+          </span>
+        </label>
+      </div>
+      <div style="font-size:12.5px;color:var(--text-muted);text-align:right;min-width:180px">
+        ${R.usarPeriodo ? `mostrando contas de <b>${brDate(S.from)}</b> a <b>${brDate(S.to)}</b>`
+                        : 'mostrando <b>todos</b> os títulos em aberto'}
+      </div>
+    </div></div>
 
     <div class="msg info" style="margin-bottom:16px">
       Só aparece o que <b>ainda não foi recebido</b>, contado pela <b>data da conta</b> — não pelo vencimento.
@@ -1830,6 +1853,7 @@ async function pageReceber(){
 
   bindVizToggles(); wireSearch();
   $$('.sub-tabs button').forEach(b=>b.addEventListener('click',()=>{ R.vis = b.dataset.v; render(); }));
+  $('#cbPer')?.addEventListener('change', e=>{ R.usarPeriodo = e.target.checked; render(); });
 
   if (rows.length){
     const labels = top.map(c=>c.cliente).concat(vOutros>0?['Outros clientes']:[]);

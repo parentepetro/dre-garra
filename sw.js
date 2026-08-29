@@ -1,5 +1,5 @@
-const CACHE = 'dre-garra-ve337066e';
-const SHELL = ['./', './index.html', './app.js?v=e337066e', './manifest.webmanifest',
+const CACHE = 'dre-garra-vecef6794';
+const SHELL = ['./', './index.html', './app.js?v=ecef6794', './manifest.webmanifest',
                './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
