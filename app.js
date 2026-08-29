@@ -1350,7 +1350,12 @@ const FAIXAS = [
   { t:'Mais de 90',    min:91,  max:1e9, c:PAL[7] }
 ];
 
-const diasDe = s => Math.floor((Date.now() - new Date(String(s).slice(0,10)+'T12:00:00')) / 86400000);
+const diasDe = s => {
+  if (!s) return 0;
+  const a = new Date(String(s).slice(0,10) + 'T00:00:00');
+  const h = new Date(); h.setHours(0,0,0,0);
+  return Math.round((h - a) / 86400000);   // dias inteiros de calendario
+};
 
 async function pageReceber(){
   const R = S.sub.rec = S.sub.rec || { vis:'cliente' };
