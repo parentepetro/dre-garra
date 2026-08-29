@@ -8,7 +8,7 @@
 <meta name="theme-color" content="#0d3852">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="DRE Garra">
 <meta name="format-detection" content="telephone=no">
 <link rel="manifest" href="manifest.webmanifest">
@@ -276,12 +276,49 @@ tfoot td{padding:12px 14px;background:var(--surface-2);font-weight:700;border-to
 .menu-toggle{display:none;background:none;border:1px solid var(--border);border-radius:8px;padding:7px;cursor:pointer}
 @media (max-width:900px){
   #app.on{grid-template-columns:1fr}
-  aside{position:fixed;left:0;top:0;width:250px;z-index:50;transform:translateX(-100%);transition:.22s}
+  aside{position:fixed;left:0;top:0;width:250px;z-index:50;transform:translateX(-100%);transition:.22s;
+        padding-top:env(safe-area-inset-top)}
   aside.open{transform:none;box-shadow:var(--shadow-lg)}
   .menu-toggle{display:grid;place-items:center}
-  .content{padding:16px 14px 60px}
-  header.top{padding:12px 14px}
+  .content{padding:16px 14px calc(60px + env(safe-area-inset-bottom))}
+  header.top{padding:12px 14px;padding-top:calc(12px + env(safe-area-inset-top))}
   .frow,.frow.f3{grid-template-columns:1fr}
+
+  /* nada pode empurrar a pagina para os lados */
+  html,body{max-width:100%;overflow-x:hidden}
+  main,.content,.card,.grid{min-width:0}
+  .card{overflow:hidden}
+
+  /* o seletor de periodo vira uma faixa que rola, em vez de quebrar em duas linhas */
+  header.top .filters{width:100%;gap:8px;flex-wrap:nowrap;overflow-x:auto;
+                      -webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:2px}
+  header.top .filters::-webkit-scrollbar{display:none}
+  header.top .chipset{flex:none}
+  .dateinp{flex:none;font-size:12px;padding:6px 8px}
+}
+
+/* telas estreitas: o numero grande precisa caber no cartao */
+@media (max-width:620px){
+  .tiles{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+  .grid{gap:12px}
+  .tile{padding:13px 13px}
+  .tile .val{font-size:clamp(15px,4.7vw,22px);letter-spacing:-.02em;
+             overflow-wrap:anywhere;line-height:1.2}
+  .tile .lbl{font-size:10px;letter-spacing:.04em}
+  .tile .foot{font-size:10.5px}
+  header.top h2{font-size:17px}
+  .card-h{padding:14px 14px 0}
+  .card-b{padding:14px}
+  .chart-wrap{height:210px}
+  .chart-wrap.tall{height:280px}
+  .legend{font-size:11.5px;gap:6px 12px}
+  .sub-tabs button{padding:9px 11px;font-size:12.5px}
+}
+
+/* celular pequeno: um cartao por linha, para o valor nunca cortar */
+@media (max-width:380px){
+  .tiles{grid-template-columns:1fr}
+  .tile .val{font-size:22px}
 }
 @media print{aside,header.top .filters,.toolbar,.rowacts{display:none!important}}
 </style>
