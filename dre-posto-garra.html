@@ -467,6 +467,7 @@ const I = {
   dl:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>',
   search:'<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>',
   link:'<path d="M20 6L9 17l-5-5"/>',
+  recv:'<path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
   inbox:'<path d="M22 12h-6l-2 3h-4l-2-3H2M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>'
 };
 const svg = (p,sz=18)=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${sz}" height="${sz}">${p}</svg>`;
@@ -479,6 +480,7 @@ const PAGES = [
   {id:'aportes', nome:'Aportes', icon:I.in, sub:'Capital investido por cada sócio'},
   {id:'retiradas', nome:'Retiradas', icon:I.out, sub:'Pró-labore, lucros e adiantamentos'},
   {id:'despesas', nome:'Despesas', icon:I.exp, sub:'Custos e despesas por centro de custo'},
+  {id:'receber', nome:'A receber', icon:I.recv, sub:'Títulos em aberto por cliente'},
   {sec:'Controle'},
   {id:'conciliacao', nome:'Conciliação', icon:I.bank, sub:'Extratos bancários e vínculos'},
   {id:'documentos', nome:'Documentos', icon:I.doc, sub:'Arquivos mensais e obrigatórios'},
@@ -604,7 +606,8 @@ async function render(){
   try {
     await ({
       dashboard: pageDashboard, vendas: pageVendas, aportes: pageAportes,
-      retiradas: pageRetiradas, despesas: pageDespesas, conciliacao: pageConciliacao,
+      retiradas: pageRetiradas, despesas: pageDespesas, receber: pageReceber,
+      conciliacao: pageConciliacao,
       documentos: pageDocumentos, cadastros: pageCadastros
     })[S.page]();
   } catch(e){
@@ -1698,6 +1701,151 @@ function formVendas(r={}){
       if (await save('faturamento', d, r.id)) { closeModal(); render(); }
     })
   });
+}
+
+/* ============================================================
+   CONTAS A RECEBER
+   ============================================================ */
+const FAIXAS = [
+  { t:'Até 30 dias',   min:0,   max:30,  c:PAL[2] },
+  { t:'31 a 60 dias',  min:31,  max:60,  c:PAL[3] },
+  { t:'61 a 90 dias',  min:61,  max:90,  c:PAL[1] },
+  { t:'Mais de 90',    min:91,  max:1e9, c:PAL[7] }
+];
+
+const diasDe = s => Math.floor((Date.now() - new Date(String(s).slice(0,10)+'T12:00:00')) / 86400000);
+
+async function pageReceber(){
+  const R = S.sub.rec = S.sub.rec || { vis:'cliente' };
+
+  let q = sb.from('contas_receber').select('*')
+    .in('situacao', ['aberto','parcial'])
+    .gt('valor_aberto', 0)
+    .order('data', { ascending:false });
+  if (S.from) q = q.gte('data', S.from);
+  if (S.to)   q = q.lte('data', S.to);
+  const { data, error } = await q;
+  if (error) throw error;
+  const rows = data || [];
+
+  const hoje = new Date().toISOString().slice(0,10);
+  const vencido  = r => r.vencimento && r.vencimento < hoje;
+  const total    = sum(rows, 'valor_aberto');
+  const tVencido = sum(rows.filter(vencido), 'valor_aberto');
+  const tAVencer = total - tVencido;
+
+  // por cliente
+  const porCliente = [...groupSum(rows, r=>r.cliente, r=>Number(r.valor_aberto)||0)]
+    .map(([cliente, v]) => {
+      const meus = rows.filter(r=>r.cliente===cliente);
+      return { cliente, v, n: meus.length,
+               venc: sum(meus.filter(vencido),'valor_aberto'),
+               antiga: meus.reduce((a,r)=> !a || r.data < a ? r.data : a, null) };
+    })
+    .sort((a,b)=>b.v-a.v);
+
+  // idade do título, contada da data da conta
+  const porFaixa = FAIXAS.map(f => {
+    const meus = rows.filter(r=>{ const d = diasDe(r.data); return d >= f.min && d <= f.max; });
+    return { ...f, v: sum(meus,'valor_aberto'), n: meus.length };
+  });
+
+  const top = porCliente.slice(0, 8);
+  const outros = porCliente.slice(8);
+  const vOutros = outros.reduce((a,c)=>a+c.v, 0);
+
+  $('#view').innerHTML = `
+    ${roNote()}
+    <div class="grid tiles" style="margin-bottom:16px">
+      ${tile('Total em aberto', money(total), `${rows.length} título${rows.length===1?'':'s'} · ${porCliente.length} cliente${porCliente.length===1?'':'s'}`, PAL[0])}
+      ${tile('Vencido', money(tVencido), rows.length?`${pct(tVencido,total)} do total em aberto`:'', PAL[7], tVencido>0?'neg':'')}
+      ${tile('A vencer', money(tAVencer), rows.length?`${pct(tAVencer,total)} do total em aberto`:'', PAL[2])}
+      ${tile('Maior devedor', porCliente[0] ? money(porCliente[0].v) : '—',
+             porCliente[0] ? esc(porCliente[0].cliente) : '', PAL[4])}
+    </div>
+
+    <div class="msg info" style="margin-bottom:16px">
+      Só aparece o que <b>ainda não foi recebido</b>, contado pela <b>data da conta</b> — não pelo vencimento.
+      Isto é dinheiro a entrar, não resultado: <b>não entra no lucro do DRE</b>, que já registrou a venda quando ela aconteceu.
+    </div>
+
+    ${rows.length?`<div class="grid" style="margin-bottom:16px">
+      ${vizCard({ title:'Quem mais deve', sub:'Saldo em aberto por cliente', canvas:'chRecCli', tall:true,
+        legend: legendHTML(top.slice(0,4).map((c,i)=>({c:PAL[i%8], t:c.cliente, v:c.v}))),
+        table: miniTable([{t:'Cliente'},{t:'Títulos',num:1},{t:'Vencido',num:1},{t:'Em aberto',num:1}],
+          porCliente.map(c=>[esc(c.cliente), String(c.n),
+            c.venc>0?`<span class="neg">${money(c.venc)}</span>`:'—', money(c.v)]),
+          ['Total', String(rows.length), money(tVencido), money(total)]) })}
+
+      ${vizCard({ title:'Idade dos títulos', sub:'Tempo desde a data da conta', canvas:'chRecIdade',
+        legend: legendHTML(porFaixa.map(f=>({c:f.c, t:f.t, v:f.v}))),
+        table: miniTable([{t:'Faixa'},{t:'Títulos',num:1},{t:'Em aberto',num:1},{t:'% do total',num:1}],
+          porFaixa.map(f=>[f.t, String(f.n), money(f.v), pct(f.v,total)]),
+          ['Total', String(rows.length), money(total), '100%']) })}
+    </div>`:''}
+
+    <div class="sub-tabs">
+      <button data-v="cliente" class="${R.vis==='cliente'?'on':''}">Por cliente</button>
+      <button data-v="titulo"  class="${R.vis==='titulo'?'on':''}">Título a título</button>
+    </div>
+
+    ${toolbar('')}
+    <div class="tablecard"><div class="tablescroll"><table>
+      ${R.vis==='cliente' ? `
+        <thead><tr><th>Cliente</th><th class="num">Títulos</th><th>Conta mais antiga</th>
+          <th class="num">Vencido</th><th class="num">Em aberto</th></tr></thead>
+        <tbody id="tbody">${porCliente.length ? porCliente.map(c=>`
+          <tr data-s="${esc(c.cliente.toLowerCase())}">
+            <td><b style="font-weight:600">${esc(c.cliente)}</b></td>
+            <td class="num">${c.n}</td>
+            <td>${brDate(c.antiga)} <span style="color:var(--text-muted);font-size:11.5px">· ${diasDe(c.antiga)} dias</span></td>
+            <td class="num">${c.venc>0?`<b class="neg">${money(c.venc)}</b>`:'—'}</td>
+            <td class="num"><b>${money(c.v)}</b></td>
+          </tr>`).join('') : emptyRow(5,'Nenhum título em aberto no período.')}</tbody>
+        ${porCliente.length?`<tfoot><tr><td>Total</td><td class="num">${rows.length}</td><td></td>
+          <td class="num">${money(tVencido)}</td><td class="num">${money(total)}</td></tr></tfoot>`:''}
+      ` : `
+        <thead><tr><th>Data da conta</th><th>Vencimento</th><th>Cliente</th><th>Documento</th>
+          <th class="num">Valor</th><th class="num">Recebido</th><th class="num">Em aberto</th><th>Situação</th></tr></thead>
+        <tbody id="tbody">${rows.length ? rows.map(r=>`
+          <tr data-s="${esc(((r.cliente||'')+' '+(r.historico||'')+' '+(r.documento||'')+' '+brDate(r.data)).toLowerCase())}">
+            <td>${brDate(r.data)}</td>
+            <td>${r.vencimento?`${brDate(r.vencimento)}${vencido(r)?` <span class="neg" style="font-size:11.5px">· ${diasDe(r.vencimento)}d</span>`:''}`:'—'}</td>
+            <td><b style="font-weight:600">${esc(r.cliente)}</b>${r.historico?`<div style="font-size:11.5px;color:var(--text-muted)">${esc(r.historico)}</div>`:''}</td>
+            <td>${esc(r.documento||'—')}${r.placa?`<div style="font-size:11.5px;color:var(--text-muted)">${esc(r.placa)}</div>`:''}</td>
+            <td class="num">${money(r.valor)}</td>
+            <td class="num">${Number(r.valor_pago)>0?money(r.valor_pago):'—'}</td>
+            <td class="num"><b>${money(r.valor_aberto)}</b></td>
+            <td><span class="pill"><i style="background:${vencido(r)?'var(--critical)':'var(--warning)'}"></i>${vencido(r)?'Vencido':'A vencer'}</span></td>
+          </tr>`).join('') : emptyRow(8,'Nenhum título em aberto no período.')}</tbody>
+        ${rows.length?`<tfoot><tr><td colspan="6">Total em aberto</td>
+          <td class="num">${money(total)}</td><td></td></tr></tfoot>`:''}
+      `}
+    </table></div></div>`;
+
+  bindVizToggles(); wireSearch();
+  $$('.sub-tabs button').forEach(b=>b.addEventListener('click',()=>{ R.vis = b.dataset.v; render(); }));
+
+  if (rows.length){
+    const labels = top.map(c=>c.cliente).concat(vOutros>0?['Outros clientes']:[]);
+    const vals   = top.map(c=>c.v).concat(vOutros>0?[vOutros]:[]);
+    S.charts.recCli = new Chart($('#chRecCli'), {
+      type:'bar',
+      data:{ labels, datasets:[{ data:vals,
+        backgroundColor: labels.map((_,i)=> i>=top.length ? INK.base : PAL[i%8]),
+        borderColor:INK.surface, borderWidth:1, borderRadius:4, maxBarThickness:24 }]},
+      options:{ indexAxis:'y', plugins:{legend:{display:false}, tooltip:tooltipCfg},
+        scales:{ x:{...axisMoney, beginAtZero:true}, y:axisCat } }
+    });
+    S.charts.recIdade = new Chart($('#chRecIdade'), {
+      type:'bar',
+      data:{ labels: porFaixa.map(f=>f.t), datasets:[{ data: porFaixa.map(f=>f.v),
+        backgroundColor: porFaixa.map(f=>f.c), borderColor:INK.surface, borderWidth:1,
+        borderRadius:{topLeft:4,topRight:4}, borderSkipped:false, maxBarThickness:44 }]},
+      options:{ plugins:{legend:{display:false}, tooltip:tooltipCfg},
+        scales:{ x:axisCat, y:{...axisMoney, beginAtZero:true} } }
+    });
+  }
 }
 
 /* ============================================================
