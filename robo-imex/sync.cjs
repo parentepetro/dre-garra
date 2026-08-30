@@ -99,6 +99,15 @@ const Q_PLANO = `query pc($idFilial:Float!,$_limit:Int!,$_offset:Int!){
   planosDeContas(idFilial:$idFilial,_limit:$_limit,_offset:$_offset){
     idPlanoDeContas codigoPlanoDeContas nomePlanoDeContas } }`;
 
+// Contas a receber. Descoberto no Imex:
+//   - quem filtra a filial e "idFiliais" (o "idFilial" sozinho NAO filtra: traz a rede toda)
+//   - tipoData 0 = DATA DA CONTA (1 e 2 filtram por vencimento)
+//   - a situacao vem vazia nesta consulta; "em aberto" sai do saldo (campo "pagar")
+const Q_RECEBER = `query cr($p: ParamsGerenciarContasReceber!){
+  getGerenciamentoContasReceber(paramsContaReceber: $p){
+    idContasReceber idFilial nomeFilial idEntidade nomeEntidade cnpjCpf
+    dtaContaBr dtaVctoBr valor vlrPago pagar nroDoc historico nroPlaca } }`;
+
 async function planoDeContas() {
   const d = await gql(Q_PLANO, { idFilial: FILIAL, _limit: 3000, _offset: 0 });
   const m = {};
@@ -174,6 +183,40 @@ async function enviar(tipo, rows) {
     const rd = await enviar('despesas', despesas);
     log(`despesas: ${despesas.length} enviada(s)` +
         (rd.gravados !== undefined ? ` · ${rd.gravados} gravada(s) no DRE · ${rd.ignorados||0} fora do DRE (compra de combustível, conta patrimonial)` : ''));
+
+    // ---- contas a receber (todos os titulos, nao so os do periodo:
+    //      titulo antigo que continua em aberto precisa aparecer na cobranca)
+    const hj = new Date();
+    const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const crIni = iso(new Date(hj.getFullYear() - 2, 0, 1));
+    const crFim = iso(new Date(hj.getFullYear() + 2, 11, 31));
+
+    const cr = await gql(Q_RECEBER, { p: {
+      idFiliais: FILIAL,          // este e o que restringe a filial
+      dtaInicial: crIni, dtaFinal: crFim,
+      tipoData: 0                 // 0 = data da conta
+    }});
+    const titulos = (cr.getGerenciamentoContasReceber || [])
+      .filter(x => x && x.dtaContaBr && Number(x.idFilial) === FILIAL)
+      .map(x => ({
+        erp_id: x.idContasReceber, filial: FILIAL,
+        data: x.dtaContaBr, vencimento: x.dtaVctoBr,
+        cliente: x.nomeEntidade, cliente_doc: x.cnpjCpf,
+        documento: x.nroDoc != null ? String(x.nroDoc) : null,
+        placa: x.nroPlaca, historico: x.historico,
+        valor: Number(x.valor || 0), valor_pago: Number(x.vlrPago || 0),
+        valor_aberto: Number(x.pagar || 0)
+      }));
+    const emAberto = titulos.filter(t => t.valor_aberto > 0.009);
+    log(`  contas a receber: ${titulos.length} titulo(s) · ${emAberto.length} em aberto ` +
+        `· ${brl(emAberto.reduce((a,t)=>a+t.valor_aberto,0))}`);
+
+    let gravRec = 0;
+    for (let i = 0; i < titulos.length; i += 300) {
+      const r = await enviar('receber', titulos.slice(i, i + 300));
+      gravRec += r.gravados || 0;
+    }
+    log(`a receber: ${titulos.length} enviado(s)${gravRec ? ` · ${gravRec} gravado(s)` : ''}`);
 
     log(TESTE ? 'MODO TESTE — nada foi gravado.' : 'sincronização concluída.');
   } catch (e) {
