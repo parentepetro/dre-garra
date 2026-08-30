@@ -1,7 +1,8 @@
 {
   "_leia": "Copie este arquivo para config.json e preencha usuario e senha do Imex. O config.json NAO vai para o GitHub.",
 
-  "erp_url":       "http://10.1.0.201:4000",
+  "erp_url":         "http://10.1.0.201:4000",
+  "erp_url_externo": "http://redeparente.ddns.com.br:4000",
   "filial":        16282,
   "matriz":        14420,
 

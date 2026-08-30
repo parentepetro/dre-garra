@@ -27,9 +27,20 @@ const TESTE   = args.includes('--teste');
 const iMeses  = args.indexOf('--meses');
 const N_MESES = iMeses >= 0 ? Math.max(1, parseInt(args[iMeses + 1], 10) || 2) : 2;
 
-const ERP     = CFG.erp_url.replace(/\/+$/, '');
 const FILIAL  = Number(CFG.filial);
 const MATRIZ  = Number(CFG.matriz);
+
+// Endereco do Imex. Dentro do posto vale o IP interno; de fora, o DDNS.
+// O robo testa os dois e usa o primeiro que responder — assim funciona
+// no Mac Mini do escritorio e no notebook em qualquer lugar.
+const limpar = u => String(u || '').replace(/\/+$/, '');
+const CANDIDATOS = [
+  process.env.ERP_URL,
+  CFG.erp_url,
+  CFG.erp_url_externo || 'http://redeparente.ddns.com.br:4000',
+].map(limpar).filter((u, i, a) => u && a.indexOf(u) === i);
+
+let ERP = CANDIDATOS[0];
 
 // ---------------------------------------------------------------- utilitários
 const log = (...a) => console.log(new Date().toLocaleString('pt-BR'), '·', ...a);
@@ -68,6 +79,27 @@ async function gql(query, variables = {}, comAuth = true) {
 }
 
 // ---------------------------------------------------------------- ERP
+async function escolherServidor() {
+  const erros = [];
+  for (const url of CANDIDATOS) {
+    try {
+      const r = await fetch(`${url}/graphql`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: '{__typename}' }),
+        signal: AbortSignal.timeout(8000),
+      });
+      await r.text();
+      ERP = url;
+      log(`servidor do Imex: ${url}`);
+      return;
+    } catch (e) {
+      erros.push(`${url} (${e.message})`);
+    }
+  }
+  throw new Error('nenhum endereco do Imex respondeu: ' + erros.join(' | '));
+}
+
 async function entrar() {
   const d = await gql(
     `mutation login($usuario:String!,$senha:String!){
@@ -133,6 +165,7 @@ async function enviar(tipo, rows) {
 // ---------------------------------------------------------------- principal
 (async () => {
   try {
+    await escolherServidor();
     await entrar();
     const mapa   = await planoDeContas();
     const lista  = meses(N_MESES);
