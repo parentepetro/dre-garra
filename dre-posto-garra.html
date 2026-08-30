@@ -1920,11 +1920,12 @@ async function pageReceber(){
 const NATUREZA = {
   venda_pix:'PIX de venda', venda_cartao:'Cartão', venda_dinheiro:'Dinheiro / depósito',
   transferencia:'Transferência', pagamento:'Pagamento / saída', tarifa:'Tarifa',
-  estorno:'Estorno', outro:'Não classificado'
+  estorno:'Estorno', aplicacao:'Aplicação financeira', outro:'Não classificado'
 };
 const NAT_COR = {
   venda_pix:PAL[2], venda_cartao:PAL[0], venda_dinheiro:PAL[5],
-  transferencia:PAL[6], pagamento:PAL[1], tarifa:PAL[3], estorno:PAL[7], outro:PAL[4]
+  transferencia:PAL[6], pagamento:PAL[1], tarifa:PAL[3], estorno:PAL[7],
+  aplicacao:PAL[8]||PAL[3], outro:PAL[4]
 };
 
 async function pageConciliacao(){
@@ -1955,9 +1956,16 @@ async function pageConciliacao(){
   if (error){ $('#view').innerHTML = `<div class="msg err">${esc(error.message)}</div>`; return; }
   const rows = data || [];
 
-  const entradas = rows.filter(r=>r.tipo==='credito');
-  const saidas   = rows.filter(r=>r.tipo==='debito');
+  // Aplicacao automatica (BB Rende Facil) e dinheiro indo e voltando da propria
+  // conta — nao e entrada nem saida de verdade. Fica de fora dos totais e
+  // aparece separado, senao infla os dois lados.
+  const aplic    = rows.filter(r=>r.natureza==='aplicacao');
+  const caixa    = rows.filter(r=>r.natureza!=='aplicacao');
+  const entradas = caixa.filter(r=>r.tipo==='credito');
+  const saidas   = caixa.filter(r=>r.tipo==='debito');
   const tEnt = sum(entradas), tSai = sum(saidas);
+  const tAplIn  = sum(aplic.filter(r=>r.tipo==='credito'));   // resgatado
+  const tAplOut = sum(aplic.filter(r=>r.tipo==='debito'));    // aplicado
   const nLanc = rows.reduce((a,r)=>a+(r.qtde||1),0);
   const conc  = rows.filter(r=>r.conciliado).length;
   const agrupadas = rows.filter(r=>r.agrupado);
@@ -1996,6 +2004,14 @@ async function pageConciliacao(){
       </div>
       ${S.admin?`<button class="btn" data-act="imp">${svg(I.up,15)} Importar extrato</button>`:''}
     </div></div>
+
+    ${aplic.length ? `<div class="msg info" style="margin-bottom:16px">
+      <b>Aplicação automática:</b> saíram ${money(tAplOut)} da conta para a aplicação e voltaram
+      ${money(tAplIn)} — líquido de <b>${money(Math.abs(tAplIn - tAplOut))}
+      ${tAplIn >= tAplOut ? 'resgatado' : 'aplicado'}</b> em ${aplic.length} lançamento(s).
+      Isso é dinheiro seu indo e voltando, então fica fora de entradas e saídas.
+      O saldo da conta corrente não inclui o que está aplicado.
+    </div>`:''}
 
     ${C.consolidar && compactadas>0 ? `<div class="msg info" style="margin-bottom:16px">
       <b>${compactadas.toLocaleString('pt-BR')}</b> lançamentos de venda estão agrupados em
