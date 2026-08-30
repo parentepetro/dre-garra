@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 /**
- * Descoberta dos filtros de CONTAS A RECEBER do Imex/XPert.
+ * Descoberta 2 — CONTAS A RECEBER do Imex/XPert.
  *
- * Roda numa maquina que enxergue o Imex e imprime:
- *   - quais codigos de "situacao" existem (para achar o "em aberto")
- *   - qual "tipoData" filtra pela DATA DA CONTA e qual filtra pelo VENCIMENTO
- *   - uma amostra dos titulos, para conferir os campos
+ * Ja sabemos que tipoData 0 = DATA DA CONTA.
+ * Falta achar qual parametro realmente restringe a filial (o Garra e a 16282).
+ * Este script testa varias formas e mostra, em cada uma, DE QUAIS FILIAIS
+ * os titulos vieram — assim da para ver na hora se o filtro pegou.
  *
- * Nao grava nada, em lugar nenhum. So lê e mostra.
+ * Nao grava nada. So le e mostra.
  *
- *   node descobrir-receber.cjs
+ *   ERP_URL=http://redeparente.ddns.com.br:4000 node descobrir-receber.cjs
  */
 
 const fs   = require('fs');
@@ -27,11 +27,11 @@ const MATRIZ = Number(CFG.matriz);
 
 let TOKEN = null, X_USER = null;
 
-async function gql(query, variables = {}, comAuth = true) {
+async function gql(query, variables = {}, comAuth = true, filialHeader = FILIAL) {
   const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
   if (comAuth) Object.assign(headers, {
     authorization: `Bearer ${TOKEN}`,
-    'x-filial': String(FILIAL), 'x-matriz': String(MATRIZ),
+    'x-filial': String(filialHeader), 'x-matriz': String(MATRIZ),
     'x-user': String(X_USER ?? ''), 'x-serial-terminal': 'RETAGUARDA'
   });
   const r = await fetch(`${ERP}/graphql`, { method:'POST', headers, body: JSON.stringify({ query, variables }) });
@@ -41,91 +41,96 @@ async function gql(query, variables = {}, comAuth = true) {
 }
 
 const brl = v => Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+const CAMPOS = `idContasReceber idFilial nomeFilial idEntidade nomeEntidade cnpjCpf
+  dtaContaBr dtaVctoBr valor vlrPago pagar nroDoc historico nroPlaca`;
 
-const CAMPOS = `idContasReceber idEntidade nomeEntidade cnpjCpf dtaContaBr dtaVctoBr dtaPgtoBr
-  valor vlrPago pagar nroDoc historico idSituacoes descricaoSituacao nroPlaca observacoes`;
-
-async function buscar(params) {
+async function buscar(params, filialHeader) {
   const d = await gql(
     `query g($p: ParamsGerenciarContasReceber!){ getGerenciamentoContasReceber(paramsContaReceber: $p){ ${CAMPOS} } }`,
-    { p: params }
+    { p: params }, true, filialHeader
   );
   return d.getGerenciamentoContasReceber || [];
 }
 
+function porFilial(rows) {
+  const m = {};
+  rows.forEach(r => {
+    const k = `${r.idFilial ?? '?'} ${r.nomeFilial ? '· ' + String(r.nomeFilial).slice(0,26) : ''}`;
+    if (!m[k]) m[k] = { n:0, saldo:0 };
+    m[k].n++; m[k].saldo += Number(r.pagar||0);
+  });
+  return Object.entries(m).sort((a,b)=>b[1].n-a[1].n);
+}
+
 (async () => {
   try {
-    // ---------- login ----------
     const d = await gql(
       `mutation login($usuario:String!,$senha:String!){
-         login(usuario:$usuario,senha:$senha){ token payload { id nomeUsuario } usuario { idUsuarios nomeUsuarios } } }`,
+         login(usuario:$usuario,senha:$senha){ token payload { id } usuario { idUsuarios nomeUsuarios } } }`,
       { usuario: CFG.imex_usuario, senha: CFG.imex_senha }, false
     );
     TOKEN  = d.login.token;
     X_USER = d.login.payload?.id ?? d.login.usuario?.idUsuarios ?? '';
-    console.log(`\nconectado como ${d.login.usuario?.nomeUsuarios || CFG.imex_usuario} · filial ${FILIAL}\n`);
+    console.log(`\nconectado como ${d.login.usuario?.nomeUsuarios || CFG.imex_usuario}\n`);
 
-    // ---------- 1. tudo, sem filtro de situacao ----------
-    console.log('== 1. TODOS OS TITULOS (sem filtro de situacao) ==');
-    let todos = [];
-    const base = { idFilial: FILIAL, idFiliais: FILIAL, todosRegistros: true };
-    for (const tentativa of [
-      { ...base },
-      { ...base, situacao: 0 },
-      { ...base, tipoStatus: 0 },
-      { idFilial: FILIAL, todosRegistros: true, dtaInicial: '2026-01-01', dtaFinal: '2026-12-31', tipoData: 1 },
-    ]) {
+    const DATAS = { dtaInicial:'2026-08-01', dtaFinal:'2026-08-31', tipoData:0 }; // 0 = data da conta
+
+    const testes = [
+      ['so idFilial',                 { idFilial: FILIAL, ...DATAS },                      FILIAL],
+      ['so idFiliais',                { idFiliais: FILIAL, ...DATAS },                     FILIAL],
+      ['idFilial + idFiliais',        { idFilial: FILIAL, idFiliais: FILIAL, ...DATAS },   FILIAL],
+      ['+ todosRegistros',            { idFilial: FILIAL, idFiliais: FILIAL, todosRegistros:true, ...DATAS }, FILIAL],
+      ['cabecalho na matriz',         { idFilial: FILIAL, idFiliais: FILIAL, ...DATAS },   MATRIZ],
+      ['sem filial (referencia)',     { ...DATAS },                                        FILIAL],
+    ];
+
+    let melhor = null;
+    for (const [nome, params, hdr] of testes) {
       try {
-        const r = await buscar(tentativa);
-        console.log(`  ${JSON.stringify(tentativa)} -> ${r.length} titulo(s)`);
-        if (r.length > todos.length) todos = r;
+        const r = await buscar(params, hdr);
+        const fs_ = porFilial(r);
+        const soGarra = fs_.length === 1 && String(fs_[0][0]).startsWith(String(FILIAL));
+        console.log(`\n${soGarra ? '>>>' : '   '} ${nome}  ->  ${r.length} titulo(s)`);
+        fs_.slice(0,6).forEach(([k,v]) => console.log(`        filial ${k.padEnd(32)} ${String(v.n).padStart(5)} · saldo ${brl(v.saldo)}`));
+        if (fs_.length > 6) console.log(`        ... e mais ${fs_.length-6} filial(is)`);
+        if (soGarra && (!melhor || r.length > melhor.rows.length)) melhor = { nome, params, rows:r };
       } catch (e) {
-        console.log(`  ${JSON.stringify(tentativa)} -> ERRO: ${e.message.slice(0,400)}`);
+        console.log(`\n    ${nome} -> ERRO: ${e.message.slice(0,300)}`);
       }
     }
 
-    if (!todos.length) {
-      console.log('\n  Nenhum titulo voltou. Pode ser que o Garra nao tenha contas a receber,');
-      console.log('  ou que os parametros precisem de outro formato. Me mande esta saida.\n');
+    if (!melhor) {
+      console.log('\n  Nenhuma combinacao trouxe SO o Garra. Me mande esta saida.\n');
       return;
     }
 
-    // ---------- 2. situacoes existentes ----------
-    console.log('\n== 2. SITUACOES ENCONTRADAS (o codigo de "em aberto" esta aqui) ==');
-    const sit = {};
-    todos.forEach(t => {
-      const k = `${t.idSituacoes} = ${t.descricaoSituacao}`;
-      if (!sit[k]) sit[k] = { n:0, valor:0, saldo:0 };
-      sit[k].n++; sit[k].valor += Number(t.valor||0); sit[k].saldo += Number(t.pagar||0);
+    console.log(`\n\n==================== RESULTADO ====================`);
+    console.log(`  Filtro que funciona: ${melhor.nome}`);
+    console.log(`  ${JSON.stringify(melhor.params)}`);
+
+    // agora sem limite de data, so do Garra, para ver o total em aberto de verdade
+    const p2 = { ...melhor.params, dtaInicial:'2000-01-01', dtaFinal:'2099-12-31' };
+    const tudo = await buscar(p2, FILIAL);
+    const abertos = tudo.filter(t => Number(t.pagar||0) > 0.009);
+    const total = abertos.reduce((a,t)=>a+Number(t.pagar||0),0);
+
+    console.log(`\n  TITULOS DO GARRA (todas as datas): ${tudo.length}`);
+    console.log(`  EM ABERTO (saldo > 0):             ${abertos.length} · ${brl(total)}`);
+
+    const cli = {};
+    abertos.forEach(t => {
+      const k = String(t.nomeEntidade || 'Sem cliente').slice(0,32);
+      cli[k] = (cli[k]||0) + Number(t.pagar||0);
     });
-    Object.entries(sit).sort((a,b)=>b[1].saldo-a[1].saldo).forEach(([k,v]) =>
-      console.log(`  ${k.padEnd(34)} ${String(v.n).padStart(5)} titulo(s) · valor ${brl(v.valor)} · saldo ${brl(v.saldo)}`));
+    console.log('\n  MAIORES DEVEDORES:');
+    Object.entries(cli).sort((a,b)=>b[1]-a[1]).slice(0,10)
+      .forEach(([k,v]) => console.log(`    ${k.padEnd(34)} ${brl(v).padStart(16)}`));
 
-    // ---------- 3. qual tipoData e a data da conta ----------
-    console.log('\n== 3. TIPO DE DATA (qual numero filtra pela DATA DA CONTA) ==');
-    const ini = '2026-08-01', fim = '2026-08-31';
-    for (const td of [0,1,2,3]) {
-      try {
-        const r = await buscar({ idFilial: FILIAL, todosRegistros: true, dtaInicial: ini, dtaFinal: fim, tipoData: td });
-        const dentroConta = r.filter(x => (x.dtaContaBr||'').slice(3,10) === '08/2026').length;
-        const dentroVcto  = r.filter(x => (x.dtaVctoBr ||'').slice(3,10) === '08/2026').length;
-        console.log(`  tipoData ${td}: ${String(r.length).padStart(4)} titulo(s) · ${dentroConta} com DATA DA CONTA em ago · ${dentroVcto} com VENCIMENTO em ago`);
-      } catch (e) {
-        console.log(`  tipoData ${td}: ERRO ${e.message.slice(0,300)}`);
-      }
-    }
+    console.log('\n  AMOSTRA (3 titulos):');
+    abertos.slice(0,3).forEach(t => console.log(
+      `    conta ${t.dtaContaBr} · vcto ${t.dtaVctoBr} · ${String(t.nomeEntidade||'').slice(0,26).padEnd(27)} ` +
+      `valor ${brl(t.valor).padStart(14)} · saldo ${brl(t.pagar).padStart(14)} · doc ${t.nroDoc ?? ''}`));
 
-    // ---------- 4. amostra ----------
-    console.log('\n== 4. AMOSTRA (5 maiores saldos em aberto) ==');
-    todos.filter(t => Number(t.pagar||0) > 0)
-      .sort((a,b)=>Number(b.pagar)-Number(a.pagar)).slice(0,5)
-      .forEach(t => console.log(
-        `  ${(t.dtaContaBr||'?').padEnd(11)} vcto ${(t.dtaVctoBr||'?').padEnd(11)} ` +
-        `${String(t.nomeEntidade||'?').slice(0,28).padEnd(29)} ` +
-        `valor ${brl(t.valor).padStart(15)} · pago ${brl(t.vlrPago).padStart(13)} · saldo ${brl(t.pagar).padStart(15)} · ${t.descricaoSituacao||''}`));
-
-    const abertos = todos.filter(t => Number(t.pagar||0) > 0);
-    console.log(`\n  TOTAL EM ABERTO (saldo > 0): ${abertos.length} titulo(s) · ${brl(abertos.reduce((a,t)=>a+Number(t.pagar||0),0))}`);
     console.log('\n  Copie esta saida e me mande.\n');
 
   } catch (e) {
