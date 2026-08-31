@@ -705,7 +705,7 @@ const sel = (name, opts, val='', extra='') =>
   `<select name="${name}" ${extra}>${opts.map(o=>`<option value="${esc(o.v)}"${String(o.v)===String(val??'')?' selected':''}>${esc(o.t)}</option>`).join('')}</select>`;
 const txa = (name, val='', rows=2) => `<textarea name="${name}" rows="${rows}">${esc(val??'')}</textarea>`;
 
-const optSocios = () => S.socios.map(s=>({v:s.id,t:s.nome}));
+const optSocios = () => S.socios.map(s=>({v:s.id, t: s.e_empresa ? `${s.nome} (o próprio posto)` : s.nome}));
 const optEmpresas = () => [{v:'',t:'—'}].concat(S.empresas.map(e=>({v:e.id,t:`${e.nome} · ${e.grupo}`})));
 const optCategorias = () => [{v:'',t:'—'}].concat(S.categorias.map(c=>({v:c.id,t:c.nome})));
 const optContas = () => [{v:'',t:'—'}].concat(S.contas.map(c=>({v:c.id,t:c.apelido||`${c.banco} ${c.conta||''}`})));
@@ -998,7 +998,8 @@ async function pageDashboard(){
    RÓTULOS
    ============================================================ */
 const TIPO_APORTE = { dinheiro:'Dinheiro', capital_giro:'Capital de giro', carta_credito:'Carta de crédito', investimento:'Investimento', emprestimo:'Empréstimo', outro:'Outro' };
-const TIPO_RETIRADA = { pro_labore:'Pró-labore', lucro:'Distribuição de lucro', adiantamento:'Adiantamento', reembolso:'Reembolso', outro:'Outro' };
+const TIPO_RETIRADA = { pro_labore:'Pró-labore', lucro:'Distribuição de lucro', adiantamento:'Adiantamento',
+  reembolso:'Reembolso', investimento:'Investimento no posto', outro:'Outro' };
 const STATUS_DESP = { pago:'Pago', a_pagar:'A pagar', cancelado:'Cancelado' };
 const STATUS_COR = { pago:'var(--good)', a_pagar:'var(--warning)', cancelado:'var(--text-muted)' };
 const TIPO_DOC = { extrato:'Extrato bancário', vendas:'Vendas × Faturamento', despesas:'Relatório de despesas', fiscal:'Fiscal / Contábil', contrato:'Contrato', obrigatorio:'Documentação obrigatória', outro:'Outro' };
@@ -1138,8 +1139,12 @@ async function pageRetiradas(){
     ${roNote()}
     <div class="grid tiles" style="margin-bottom:16px">
       ${tile('Total retirado no período', money(total), `${rows.length} lançamento${rows.length===1?'':'s'}`)}
-      ${porSocio.map((p,i)=>tile(`Sócio ${p.s.nome}`, money(p.v),
-        `Saldo (aporte − retirada) <b style="margin-left:3px" class="${p.a-p.v>=0?'pos':'neg'}">${moneyShort(p.a-p.v)}</b>`,
+      ${porSocio.map((p,i)=>tile(
+        p.s.e_empresa ? 'Investido no próprio posto' : `Sócio ${p.s.nome}`,
+        money(p.v),
+        p.s.e_empresa
+          ? 'Obra, equipamento, benfeitoria — não entra no resultado do mês'
+          : `Saldo (aporte − retirada) <b style="margin-left:3px" class="${p.a-p.v>=0?'pos':'neg'}">${moneyShort(p.a-p.v)}</b>`,
         p.s.cor||PAL[i])).join('')}
     </div>
 
@@ -1159,7 +1164,7 @@ async function pageRetiradas(){
 
     ${toolbar(btnNovo('Nova retirada','new'))}
     <div class="tablecard"><div class="tablescroll"><table>
-      <thead><tr><th>Data</th><th>Sócio</th><th>Natureza</th><th>Descrição</th><th>Empresa</th><th class="num">Valor</th><th></th></tr></thead>
+      <thead><tr><th>Data</th><th>Destino</th><th>Natureza</th><th>Descrição</th><th>Empresa</th><th class="num">Valor</th><th></th></tr></thead>
       <tbody id="tbody">${rows.length ? rows.map(r=>`
         <tr data-s="${esc((brDate(r.data)+' '+nomeSocio(r.socio_id)+' '+(TIPO_RETIRADA[r.tipo]||'')+' '+(r.descricao||'')).toLowerCase())}">
           <td>${brDate(r.data)}</td>
@@ -1197,10 +1202,10 @@ async function pageRetiradas(){
 function formRetirada(r={}){
   openModal({
     title: r.id ? 'Editar retirada' : 'Nova retirada',
-    sub: 'Valor retirado pelo sócio',
+    sub: 'Saída para um sócio ou para o próprio posto',
     body: `<div class="frow">
       ${fld('Data', inp('data','date', r.data||iso(today()), 'required'))}
-      ${fld('Sócio', sel('socio_id', optSocios(), r.socio_id))}
+      ${fld('Para quem', sel('socio_id', optSocios(), r.socio_id))}
       ${fld('Natureza', sel('tipo', opts(TIPO_RETIRADA), r.tipo||'pro_labore'))}
       ${fld('Valor (R$)', inp('valor','text', r.valor!=null?NUM.format(r.valor):'', 'data-money="1" inputmode="decimal" placeholder="0,00"'))}
       ${fld('Descrição', inp('descricao','text', r.descricao), 'full')}
@@ -1208,11 +1213,21 @@ function formRetirada(r={}){
       ${fld('Observações', txa('observacoes', r.observacoes), 'full')}
     </div>`,
     footer: `<button class="btn ghost" data-close>Cancelar</button><button class="btn" id="sv">Salvar</button>`,
-    onMount: m => $('#sv',m).addEventListener('click', async ()=>{
-      const d = formData(m);
-      if (!d.valor) return toast('Informe o valor.', true);
-      if (await save('retiradas', d, r.id)) { closeModal(); render(); }
-    })
+    onMount: m => {
+      // escolheu o proprio posto? entao a natureza natural e investimento
+      const selD = m.querySelector('[name="socio_id"]'), selT = m.querySelector('[name="tipo"]');
+      selD?.addEventListener('change', () => {
+        if (r.id) return;                        // editando, respeita o que ja esta la
+        const alvo = byId(S.socios, selD.value);
+        if (alvo?.e_empresa) selT.value = 'investimento';
+        else if (selT.value === 'investimento') selT.value = 'pro_labore';
+      });
+      $('#sv',m).addEventListener('click', async ()=>{
+        const d = formData(m);
+        if (!d.valor) return toast('Informe o valor.', true);
+        if (await save('retiradas', d, r.id)) { closeModal(); render(); }
+      });
+    }
   });
 }
 

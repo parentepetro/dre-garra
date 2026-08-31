@@ -79,22 +79,35 @@ async function gql(query, variables = {}, comAuth = true) {
 }
 
 // ---------------------------------------------------------------- ERP
+const espera = ms => new Promise(r => setTimeout(r, ms));
+
+// O launchd dispara o robo assim que o Mac acorda, e nesse instante a rede
+// costuma ainda nao estar de pe. Por isso tenta algumas vezes antes de desistir.
 async function escolherServidor() {
-  const erros = [];
-  for (const url of CANDIDATOS) {
-    try {
-      const r = await fetch(`${url}/graphql`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: '{__typename}' }),
-        signal: AbortSignal.timeout(8000),
-      });
-      await r.text();
-      ERP = url;
-      log(`servidor do Imex: ${url}`);
-      return;
-    } catch (e) {
-      erros.push(`${url} (${e.message})`);
+  const TENTATIVAS = [0, 20, 40, 60, 120];   // segundos de espera antes de cada rodada
+  let erros = [];
+
+  for (let i = 0; i < TENTATIVAS.length; i++) {
+    if (TENTATIVAS[i]) {
+      log(`rede ainda nao respondeu — nova tentativa em ${TENTATIVAS[i]}s`);
+      await espera(TENTATIVAS[i] * 1000);
+    }
+    erros = [];
+    for (const url of CANDIDATOS) {
+      try {
+        const r = await fetch(`${url}/graphql`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: '{__typename}' }),
+          signal: AbortSignal.timeout(8000),
+        });
+        await r.text();
+        ERP = url;
+        log(`servidor do Imex: ${url}`);
+        return;
+      } catch (e) {
+        erros.push(`${url} (${e.message})`);
+      }
     }
   }
   throw new Error('nenhum endereco do Imex respondeu: ' + erros.join(' | '));
