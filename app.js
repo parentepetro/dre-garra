@@ -640,21 +640,44 @@ async function pageAportes(){
   const total = sum(rows);
   const meses = monthsRange();
 
-  const porSocio = S.socios.map(s => ({ s, v: sum(rows.filter(r=>r.socio_id===s.id)) }));
+  // quem aporta e socio; o proprio posto so recebe, entao nao aparece aqui
+  const SOC = S.socios.filter(s => !s.e_empresa);
+  const porSocio = SOC.map(s => ({ s, v: sum(rows.filter(r=>r.socio_id===s.id)) }));
   const tipos = [...groupSum(rows, r=>TIPO_APORTE[r.tipo]||r.tipo)].sort((a,b)=>b[1]-a[1]);
+
+  // No que o dinheiro foi aplicado. Agrupa pela descricao do lancamento
+  // ("compra do posto", "compra do caminhao"), ignorando maiuscula e acento,
+  // para que pequenas variacoes de digitacao caiam na mesma linha.
+  const chave = t => (t||'').toString().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+                      .toLowerCase().replace(/\s+/g,' ').trim();
+  const SEM = '__sem__';
+  const mapaDest = new Map();
+  rows.forEach(r => {
+    const k = chave(r.descricao) || SEM;
+    if (!mapaDest.has(k)) mapaDest.set(k, { k, rotulo: r.descricao || 'Capital de giro / sem destino informado',
+                                            v:0, n:0, porSocio:{} });
+    const d = mapaDest.get(k);
+    d.v += Number(r.valor||0); d.n++;
+    d.porSocio[r.socio_id] = (d.porSocio[r.socio_id]||0) + Number(r.valor||0);
+  });
+  const destinos = [...mapaDest.values()].sort((a,b) =>
+    (a.k===SEM) - (b.k===SEM) || b.v - a.v);
+  const investido = destinos.filter(d=>d.k!==SEM).reduce((a,d)=>a+d.v,0);
 
   $('#view').innerHTML = `
     ${roNote()}
     <div class="grid tiles" style="margin-bottom:16px">
       ${tile('Total aportado no período', money(total), `${rows.length} lançamento${rows.length===1?'':'s'}`)}
       ${porSocio.map((p,i)=>tile(`Sócio ${p.s.nome}`, money(p.v), total?`${pct(p.v,total)} do total`:'', p.s.cor||PAL[i])).join('')}
+      ${investido ? tile('Aplicado em bens', money(investido),
+        `Capital de giro e demais: ${money(total - investido)}`, PAL[2]) : ''}
     </div>
 
     <div class="grid" style="grid-template-columns:1.5fr 1fr;margin-bottom:16px">
       ${vizCard({ title:'Aportes por mês', sub:'Empilhado por sócio', canvas:'chApMes',
         legend: legendHTML(porSocio.map((p,i)=>({c:p.s.cor||PAL[i], t:p.s.nome, v:p.v}))),
-        table: miniTable([{t:'Mês'}].concat(S.socios.map(s=>({t:s.nome,num:1}))).concat([{t:'Total',num:1}]),
-          meses.map(k=>[monthLabelLong(k)].concat(S.socios.map(s=>
+        table: miniTable([{t:'Mês'}].concat(SOC.map(s=>({t:s.nome,num:1}))).concat([{t:'Total',num:1}]),
+          meses.map(k=>[monthLabelLong(k)].concat(SOC.map(s=>
             money(sum(rows.filter(r=>r.socio_id===s.id && monthKey(r.data)===k))))).concat([
             money(sum(rows.filter(r=>monthKey(r.data)===k)))])),
           ['Total'].concat(porSocio.map(p=>money(p.v))).concat([money(total)])) })}
@@ -663,6 +686,21 @@ async function pageAportes(){
         table: miniTable([{t:'Tipo'},{t:'Valor',num:1},{t:'%',num:1}],
           tipos.map(t=>[esc(t[0]), money(t[1]), pct(t[1],total)]), ['Total', money(total),'100%']) })}
     </div>
+
+    ${destinos.length ? `<div class="grid" style="grid-template-columns:1fr;margin-bottom:16px">
+      ${vizCard({ title:'No que o dinheiro foi aplicado', tall:true,
+        sub:'Pelo que está escrito na descrição do aporte',
+        canvas:'chApDest',
+        legend: legendHTML(destinos.map((d,i)=>({ c: d.k===SEM ? INK.base : PAL[i%8],
+          t: d.rotulo, v: d.v }))),
+        table: miniTable(
+          [{t:'Destino'}].concat(SOC.map(s=>({t:s.nome,num:1}))).concat([{t:'Total',num:1},{t:'%',num:1}]),
+          destinos.map(d => [esc(d.rotulo)]
+            .concat(SOC.map(s => money(d.porSocio[s.id]||0)))
+            .concat([money(d.v), pct(d.v,total)])),
+          ['Total'].concat(SOC.map(s=>money(sum(rows.filter(r=>r.socio_id===s.id)))))
+                   .concat([money(total),'100%'])) })}
+    </div>` : ''}
 
     ${toolbar(btnNovo('Novo aporte','new'))}
     <div class="tablecard"><div class="tablescroll"><table>
@@ -684,13 +722,22 @@ async function pageAportes(){
 
   S.charts.apMes = new Chart($('#chApMes'), {
     type:'bar',
-    data:{ labels: meses.map(monthLabel), datasets: S.socios.map((s,i)=>({
+    data:{ labels: meses.map(monthLabel), datasets: SOC.map((s,i)=>({
       label:s.nome, data: meses.map(k=>sum(rows.filter(r=>r.socio_id===s.id && monthKey(r.data)===k))),
       backgroundColor: s.cor||PAL[i], borderColor:INK.surface, borderWidth:1, borderRadius:4, maxBarThickness:26 }))},
     options:{ plugins:{legend:{display:false}, tooltip:tooltipCfg}, interaction:{mode:'index',intersect:false},
       // barras lado a lado: fica facil comparar um socio com o outro no mesmo mes
       datasets:{ bar:{ categoryPercentage:0.7, barPercentage:0.9 } },
       scales:{ x:{...axisCat, stacked:false}, y:{...axisMoney, stacked:false, beginAtZero:true} } }
+  });
+  if (destinos.length) S.charts.apDest = new Chart($('#chApDest'), {
+    type:'bar',
+    data:{ labels: destinos.map(d=>d.rotulo), datasets:[{ data: destinos.map(d=>d.v),
+      backgroundColor: destinos.map((d,i)=> d.k===SEM ? INK.base : PAL[i%8]),
+      borderColor:INK.surface, borderWidth:1, borderRadius:4, maxBarThickness:30 }]},
+    options:{ indexAxis:'y', plugins:{legend:{display:false},
+      tooltip:{...tooltipCfg, callbacks:{label:c=>` ${money(c.parsed.x)} (${pct(c.parsed.x,total)})`}}},
+      scales:{ x:{...axisMoney, beginAtZero:true}, y:axisCat } }
   });
   S.charts.apTipo = new Chart($('#chApTipo'), {
     type:'doughnut',
