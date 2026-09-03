@@ -788,6 +788,9 @@ const byId = (arr, id) => arr.find(x=>x.id===id);
 const nomeSocio = id => byId(S.socios,id)?.nome || '—';
 const nomeEmpresa = id => { const e = byId(S.empresas,id); return e ? e.nome : '—'; };
 const grupoEmpresa = id => byId(S.empresas,id)?.grupo || '—';
+const CENTRO_CUSTO = { pessoal:'Pessoal', operacional:'Operacional', administrativa:'Administrativas',
+  financeira:'Financeiras', tributaria:'Tributárias', investimento:'Investimento', outros:'Outros' };
+const centroDe = id => CENTRO_CUSTO[byId(S.categorias,id)?.tipo] || 'Outros';
 const nomeCategoria = id => byId(S.categorias,id)?.nome || 'Sem categoria';
 const corSocio = (id,i=0) => byId(S.socios,id)?.cor || PAL[i%8];
 
@@ -1301,12 +1304,15 @@ async function pageDespesas(){
   const meses = monthsRange();
 
   const cats = [...groupSum(ativos, r=>nomeCategoria(r.categoria_id))].sort((a,b)=>b[1]-a[1]);
-  const catTop = cats.slice(0,5), catResto = cats.slice(5).reduce((a,b)=>a+b[1],0);
-  const catL = catTop.map(c=>c[0]).concat(catResto>0?['Outros']:[]);
-  const catV = catTop.map(c=>c[1]).concat(catResto>0?[catResto]:[]);
 
-  const emps = [...groupSum(ativos, r=>nomeEmpresa(r.empresa_id))].sort((a,b)=>b[1]-a[1]).slice(0,8);
-  const grupos = [...groupSum(ativos, r=>grupoEmpresa(r.empresa_id))].sort((a,b)=>b[1]-a[1]);
+  // Resumo por categoria: salarios, encargos, taxas, energia, agua...
+  const contas = [...groupSum(ativos, r=>nomeCategoria(r.categoria_id))].sort((a,b)=>b[1]-a[1]);
+  const cTop = contas.slice(0,12), cResto = contas.slice(12).reduce((a,b)=>a+b[1],0);
+  const cL = cTop.map(c=>c[0]).concat(cResto>0?['Demais']:[]);
+  const cV = cTop.map(c=>c[1]).concat(cResto>0?[cResto]:[]);
+
+  // E o centro de custo de verdade: a natureza de cada categoria
+  const centros = [...groupSum(ativos, r=>centroDe(r.categoria_id))].sort((a,b)=>b[1]-a[1]);
 
   $('#view').innerHTML = `
     ${roNote()}
@@ -1318,16 +1324,14 @@ async function pageDespesas(){
     </div>
 
     <div class="grid" style="grid-template-columns:1fr 1fr;margin-bottom:16px">
-      ${vizCard({ title:'Despesas por categoria', sub:'Participação no total do período', canvas:'chDeCat',
-        legend: legendHTML(catL.map((l,i)=>({c:PAL[i], t:l, v:catV[i]}))),
-        table: miniTable([{t:'Categoria'},{t:'Valor',num:1},{t:'%',num:1}],
-          cats.map(c=>[esc(c[0]), money(c[1]), pct(c[1],total)]), ['Total', money(total),'100%']) })}
-      ${vizCard({ title:'Por centro de custo', sub:'Empresa que pagou a despesa', canvas:'chDeEmp',
-        legend: legendHTML(grupos.map((g,i)=>({c:PAL[0], t:g[0], v:g[1]}))),
-        table: miniTable([{t:'Empresa'},{t:'Grupo'},{t:'Valor',num:1},{t:'%',num:1}],
-          [...groupSum(ativos, r=>r.empresa_id||'null')].sort((a,b)=>b[1]-a[1]).map(([id,v])=>
-            [esc(nomeEmpresa(id==='null'?null:id)), esc(grupoEmpresa(id==='null'?null:id)), money(v), pct(v,total)]),
-          ['Total','', money(total),'100%']) })}
+      ${vizCard({ title:'Por centro de custo', sub:'Pessoal, operacional, administrativas, financeiras', canvas:'chDeCat',
+        legend: legendHTML(centros.map((c,i)=>({c:PAL[i%8], t:c[0], v:c[1]}))),
+        table: miniTable([{t:'Centro de custo'},{t:'Valor',num:1},{t:'%',num:1}],
+          centros.map(c=>[esc(c[0]), money(c[1]), pct(c[1],total)]), ['Total', money(total),'100%']) })}
+      ${vizCard({ title:'Resumo por tipo de despesa', sub:'Salários, encargos, taxas, energia, água...', canvas:'chDeConta', tall:true,
+        legend: legendHTML(cL.map((l,i)=>({c: l==='Demais'?INK.base:PAL[i%8], t:l, v:cV[i]}))),
+        table: miniTable([{t:'Tipo de despesa'},{t:'Valor',num:1},{t:'%',num:1}],
+          contas.map(c=>[esc(c[0]), money(c[1]), pct(c[1],total)]), ['Total', money(total),'100%']) })}
     </div>
 
     <div class="grid" style="margin-bottom:16px">
@@ -1362,18 +1366,23 @@ async function pageDespesas(){
 
   S.charts.deCat = new Chart($('#chDeCat'), {
     type:'doughnut',
-    data:{ labels:catL, datasets:[{ data:catV, backgroundColor:catL.map((_,i)=>PAL[i]),
+    data:{ labels:centros.map(c=>c[0]), datasets:[{ data:centros.map(c=>c[1]),
+      backgroundColor:centros.map((_,i)=>PAL[i%8]),
       borderColor:INK.surface, borderWidth:2, hoverOffset:6 }]},
     options:{ cutout:'58%', plugins:{legend:{display:false},
       tooltip:{...tooltipCfg, callbacks:{label:c=>` ${c.label}: ${money(c.parsed)} (${pct(c.parsed,total)})`}}} }
   });
-  S.charts.deEmp = new Chart($('#chDeEmp'), {
+  S.charts.deConta = new Chart($('#chDeConta'), {
     type:'bar',
-    data:{ labels:emps.map(e=>e[0]), datasets:[{ label:'Despesas', data:emps.map(e=>e[1]),
-      backgroundColor:PAL[0], borderRadius:{topRight:4,bottomRight:4}, borderSkipped:false, maxBarThickness:24 }]},
-    options:{ indexAxis:'y', plugins:{legend:{display:false},
-      tooltip:{...tooltipCfg, callbacks:{label:c=>` ${money(c.parsed.x)} (${pct(c.parsed.x,total)})`}}},
-      scales:{ x:{...axisMoney, beginAtZero:true}, y:{...axisCat, ticks:{padding:6, autoSkip:false}} } }
+    data:{ labels: cL, datasets:[{ data: cV,
+      backgroundColor: cL.map((l,i)=> l==='Demais' ? INK.base : PAL[i%8]),
+      borderColor:INK.surface, borderWidth:1,
+      borderRadius:{topLeft:4,topRight:4}, borderSkipped:false, maxBarThickness:38 }]},
+    options:{ plugins:{legend:{display:false},
+      tooltip:{...tooltipCfg, callbacks:{label:c=>` ${money(c.parsed.y)} (${pct(c.parsed.y,total)})`}}},
+      scales:{ x:{...axisCat, ticks:{...(axisCat.ticks||{}), maxRotation:60, minRotation:45,
+        callback(v){ const t = this.getLabelForValue(v); return t.length>18 ? t.slice(0,17)+'…' : t; }}},
+        y:{...axisMoney, beginAtZero:true} } }
   });
   S.charts.deMes = new Chart($('#chDeMes'), {
     type:'bar',
