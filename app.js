@@ -1707,7 +1707,7 @@ async function pageAcerto(){
           <td><b style="font-weight:600">${esc(nomePosto(m.posto_id))}</b>
             <div style="font-size:11.5px;color:var(--text-muted)">${m.direcao==='saiu'?'saiu do Garra':'entrou no Garra'}</div></td>
           <td><span class="pill"><i style="background:${m.tipo==='combustivel'?(PROD_COR[m.produto]||PAL[3]):PAL[6]}"></i>${m.tipo==='combustivel'?esc(PRODUTO[m.produto]||'Combustível'):'Dinheiro'}</span></td>
-          <td style="font-size:12.5px">${esc(m.descricao||'—')}${m.observacoes?`<div style="font-size:11.5px;color:var(--text-muted)">${esc(m.observacoes)}</div>`:''}</td>
+          <td style="font-size:12.5px">${esc(m.descricao||'—')}${m.documento?`<div style="font-size:11.5px;color:var(--text-muted)">nota ${esc(m.documento)}</div>`:''}${m.observacoes?`<div style="font-size:11.5px;color:var(--text-muted)">${esc(m.observacoes)}</div>`:''}</td>
           <td class="num">${m.litros?litrosFmt(m.litros):'—'}</td>
           <td class="num">${Number(m.valor_litro)?NUM.format(m.valor_litro):(m.tipo==='combustivel'?'<span style="color:var(--warning)">falta</span>':'—')}</td>
           <td class="num"><b class="${m.direcao==='saiu'?'pos':'neg'}">${m.direcao==='saiu'?'+':'−'} ${money(m.valor)}</b></td>
@@ -1757,14 +1757,18 @@ function formAcerto(r={}){
           {v:'entrou',t:'Entrou no Garra — o Garra fica devendo'},
           {v:'saiu',  t:'Saiu do Garra — o posto fica devendo'}], r.direcao||'entrou'), 'full')}
       ${fld('Deve para / de qual posto', sel('posto_id', optPostos(), r.posto_id), 'full')}
-      ${fld('Descrição', inp('descricao','text', r.descricao), 'full')}
+      ${fld('Número da nota', inp('documento','text', r.documento, 'placeholder="ex.: 12345"'))}
+      ${fld('Descrição', inp('descricao','text', r.descricao))}
 
       <div class="field full" id="boxComb" style="${ehComb?'':'display:none'}">
         <div class="frow" style="margin:0">
           ${fld('Produto', sel('produto', opts(PRODUTO), r.produto||'gasolina_comum'))}
           ${fld('Volume (litros)', inp('litros','text', r.litros!=null?NUM.format(r.litros):'', 'data-money="1" inputmode="decimal" placeholder="5.000"'))}
+          ${fld('Valor da nota (R$)', inp('valor_nota','text', (ehComb && r.valor!=null && Number(r.valor)>0)?NUM.format(r.valor):'', 'data-money="1" inputmode="decimal" placeholder="0,00"'))}
           ${fld('Valor por litro (R$)', inp('valor_litro','text', r.valor_litro!=null?Number(r.valor_litro).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:4}):'', 'inputmode="decimal" placeholder="5,89"'))}
-          ${fld('Valor total (R$)', inp('total_calc','text','', 'readonly style="background:var(--page);font-weight:600"'))}
+        </div>
+        <div style="font-size:11.5px;color:var(--text-muted);margin-top:5px">
+          Preencha o volume e <b>um dos dois</b>: o valor da nota ou o preço por litro. O outro se completa sozinho.
         </div>
       </div>
 
@@ -1780,34 +1784,61 @@ function formAcerto(r={}){
     </div>`,
     footer: `<button class="btn ghost" data-close>Cancelar</button><button class="btn" id="sv">Salvar</button>`,
     onMount: m => {
-      const selTipo = m.querySelector('[name="tipo"]');
-      const boxC = $('#boxComb', m), boxD = $('#boxDin', m);
-      const elL = m.querySelector('[name="litros"]'), elP = m.querySelector('[name="valor_litro"]'),
-            elT = m.querySelector('[name="total_calc"]');
+      const q = n => m.querySelector(`[name="${n}"]`);
+      const selTipo = q('tipo'), boxC = $('#boxComb', m), boxD = $('#boxDin', m);
+      const elL = q('litros'), elN = q('valor_nota'), elP = q('valor_litro');
+      let mexendo = false;                    // evita os dois campos brigarem entre si
 
-      const recalc = () => {
-        const l = parseMoney(elL.value) || 0, p = parseMoney(elP.value) || 0;
-        elT.value = NUM.format(l * p);
+      const escreve = (el, v, casas=2) => {
+        mexendo = true;
+        el.value = v > 0 ? v.toLocaleString('pt-BR',{minimumFractionDigits:2, maximumFractionDigits:casas}) : '';
+        mexendo = false;
       };
+      // digitou o preco -> completa a nota
+      const doPreco = () => {
+        if (mexendo) return;
+        const l = parseMoney(elL.value), p = parseMoney(elP.value);
+        if (l > 0 && p > 0) escreve(elN, l * p);
+      };
+      // digitou a nota -> completa o preco
+      const doNota = () => {
+        if (mexendo) return;
+        const l = parseMoney(elL.value), n = parseMoney(elN.value);
+        if (l > 0 && n > 0) escreve(elP, n / l, 4);
+      };
+      // mudou o volume -> recalcula a partir do que ja estiver preenchido
+      const doLitros = () => {
+        if (mexendo) return;
+        const l = parseMoney(elL.value);
+        if (l <= 0) return;
+        if (parseMoney(elP.value) > 0) escreve(elN, l * parseMoney(elP.value));
+        else if (parseMoney(elN.value) > 0) escreve(elP, parseMoney(elN.value) / l, 4);
+      };
+
+      ['input','change','blur'].forEach(ev => {
+        elP.addEventListener(ev, doPreco);
+        elN.addEventListener(ev, doNota);
+        elL.addEventListener(ev, doLitros);
+      });
+
       const trocaTipo = () => {
         const comb = selTipo.value === 'combustivel';
         boxC.style.display = comb ? '' : 'none';
         boxD.style.display = comb ? 'none' : '';
-        if (comb) recalc();
       };
       selTipo.addEventListener('change', trocaTipo);
-      [elL, elP].forEach(el => { el.addEventListener('input', recalc); el.addEventListener('blur', recalc); });
-      recalc();
 
       $('#sv',m).addEventListener('click', async ()=>{
         const d = formData(m);
-        delete d.total_calc;
+        delete d.valor_nota;
         if (!d.posto_id) return toast('Escolha o posto.', true);
         if (d.tipo === 'combustivel') {
           d.litros = parseMoney(elL.value);
-          d.valor_litro = parseMoney(elP.value) || null;
           if (!d.litros) return toast('Informe o volume em litros.', true);
-          d.valor = 0;                       // o banco recalcula litros x preco
+          const p = parseMoney(elP.value), n = parseMoney(elN.value);
+          if (!p && !n) return toast('Informe o valor da nota ou o preço por litro.', true);
+          d.valor_litro = p > 0 ? p : null;      // o banco completa o que faltar
+          d.valor       = p > 0 ? 0 : n;
         } else {
           if (!d.valor) return toast('Informe o valor.', true);
           d.produto = null; d.litros = null; d.valor_litro = null;
