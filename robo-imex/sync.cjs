@@ -12,6 +12,7 @@
 
 const fs   = require('fs');
 const path = require('path');
+const { buscarDre, folhasDe } = require('./dre-imex.cjs');
 
 // ---------------------------------------------------------------- config
 const CFG_PATH = path.join(__dirname, 'config.json');
@@ -210,22 +211,66 @@ async function enviar(tipo, rows) {
     const rv = await enviar('vendas', vendas);
     log(`vendas: ${vendas.length} linha(s) enviada(s)${rv.gravados ? ` · ${rv.gravados} gravada(s)` : ''}`);
 
-    // ---- despesas
+    // ---- despesas: a fonte e a DRE do Imex, nao o contas a pagar.
+    //      O contas a pagar nao tem despesa financeira, nem taxa de cartao,
+    //      e fica uns R$ 100 mil por mes abaixo do que o proprio Imex mostra.
+    //      O relatorio 08 traz tudo, ja pelo regime de caixa.
     let despesas = [];
+
+    // id sintetico estavel: mes (1..) * 1.000.000 + o codigo da conta virado numero.
+    // Cabe num integer e nao colide com o id do contas a pagar.
+    const idSintetico = (competencia, codigo) => {
+      const [ano, mes] = competencia.split('-').map(Number);
+      const m = (ano - 2026) * 12 + mes;
+      const resto = codigo.replace(/^3\.2\.?/, '').split('.')
+        .map(x => String(x).padStart(2, '0')).join('');
+      return 800000000 + m * 1000000 + (Number(resto) || 0);
+    };
+
+    for (const m of lista) {
+      try {
+        const contas = await buscarDre(gql, { filial: FILIAL, ini: m.ini, fim: m.fim, regimeCaixa: true });
+        const folhas = folhasDe(contas, '3.2');
+        const soma   = folhas.reduce((a, k) => a + contas[k].valor, 0);
+        const grupo  = contas['3.2']?.valor;
+
+        folhas.forEach(cod => {
+          const c = contas[cod];
+          if (Math.abs(c.valor) < 0.005) return;
+          despesas.push({
+            erp_id: idSintetico(m.competencia, cod),
+            filial: FILIAL,
+            data: `${m.fim.slice(8,10)}/${m.fim.slice(5,7)}/${m.fim.slice(0,4)}`,
+            conta_codigo: cod,
+            conta_nome: c.nome,
+            fornecedor: c.nome,
+            historico: `${c.nome} — DRE ${m.competencia.slice(0,7)} (regime de caixa)`,
+            valor: +Number(c.valor).toFixed(2),
+          });
+        });
+
+        const confere = grupo != null && Math.abs(soma - grupo) < 0.05;
+        log(`  ${m.competencia.slice(0,7)}  despesas ${brl(soma)} em ${folhas.length} conta(s)` +
+            (confere ? '' : `  ATENCAO: o relatorio diz ${brl(grupo)}`));
+      } catch (e) {
+        log(`  ${m.competencia.slice(0,7)}  DRE indisponivel: ${e.message.slice(0,80)}`);
+      }
+    }
+
+    // O financiamento de veiculo e conta patrimonial (2.2.01.01): nao entra na
+    // DRE do Imex, mas voce pediu para ele aparecer. Esse vem do contas a pagar.
     for (const m of lista) {
       const d = await gql(Q_CONTAS_PAGAR, { filial:[FILIAL], tipoConta:0, vinculado:0,
         dataInicial:m.ini, dataFinal:m.fim, usarPeriodo:true, tipoData:0, page:1, offset:20000 });
-      const rows = (d.getContasPagar || [])
-        .filter(x => x && x.dtaContaBr && x.valor != null)
-        .map(x => {
-          const [cod, nome] = mapa[x.idPlanoDeContas] || ['?', '?'];
-          return { erp_id:x.idContasPagar, filial:FILIAL, data:x.dtaContaBr, conta_codigo:cod,
-                   conta_nome:nome, fornecedor:x.nomeEntidade || '', historico:x.historico || '',
-                   valor:Number(x.valor) };
-        });
-      log(`  ${m.competencia.slice(0,7)}  ${rows.length} lançamento(s) no contas a pagar`);
-      despesas = despesas.concat(rows);
+      (d.getContasPagar || []).forEach(x => {
+        const [cod, nome] = mapa[x.idPlanoDeContas] || ['?', '?'];
+        if (!String(cod).startsWith('2.')) return;      // so as patrimoniais
+        despesas.push({ erp_id:x.idContasPagar, filial:FILIAL, data:x.dtaContaBr,
+          conta_codigo:cod, conta_nome:nome, fornecedor:x.nomeEntidade || '',
+          historico:x.historico || '', valor:Number(x.valor) });
+      });
     }
+
     const rd = await enviar('despesas', despesas);
     log(`despesas: ${despesas.length} enviada(s)` +
         (rd.gravados !== undefined ? ` · ${rd.gravados} gravada(s) no DRE · ${rd.ignorados||0} fora do DRE (compra de combustível, conta patrimonial)` : ''));

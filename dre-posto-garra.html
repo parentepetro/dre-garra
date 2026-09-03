@@ -419,7 +419,7 @@ const S = {
   user:null, perfil:null, admin:false,
   from:null, to:null, preset:'ano',
   page:'dashboard',
-  socios:[], empresas:[], categorias:[], contas:[], regras:[],
+  socios:[], empresas:[], categorias:[], contas:[], regras:[], acertoPostos:[],
   charts:{}, sub:{}
 };
 
@@ -505,6 +505,8 @@ const I = {
   search:'<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>',
   link:'<path d="M20 6L9 17l-5-5"/>',
   recv:'<path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
+  hand:'<path d="M12 2v10M9 5l3-3 3 3"/><path d="M4 12v5a5 5 0 0 0 5 5h6a5 5 0 0 0 5-5v-5"/>',
+  swap:'<path d="M7 16H3m0 0l3-3m-3 3l3 3M17 8h4m0 0l-3-3m3 3l-3 3"/><path d="M3 8h10M11 16h10"/>',
   inbox:'<path d="M22 12h-6l-2 3h-4l-2-3H2M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>'
 };
 const svg = (p,sz=18)=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${sz}" height="${sz}">${p}</svg>`;
@@ -519,6 +521,8 @@ const PAGES = [
   {id:'despesas', nome:'Despesas', icon:I.exp, sub:'Custos e despesas por centro de custo'},
   {id:'receber', nome:'A receber', icon:I.recv, sub:'Títulos em aberto por cliente'},
   {sec:'Controle'},
+  {id:'acerto', nome:'Acerto de contas', icon:I.swap, sub:'Dinheiro e combustível com os postos do grupo'},
+  {id:'creditos', nome:'Créditos', icon:I.hand, sub:'O que terceiros devem ao posto'},
   {id:'conciliacao', nome:'Conciliação', icon:I.bank, sub:'Extratos bancários e vínculos'},
   {id:'documentos', nome:'Documentos', icon:I.doc, sub:'Arquivos mensais e obrigatórios'},
   {id:'cadastros', nome:'Cadastros', icon:I.cog, sub:'Sócios, empresas, categorias e contas'}
@@ -577,15 +581,16 @@ async function boot(){
 }
 
 async function loadCadastros(){
-  const [so,em,ca,co,rg] = await Promise.all([
+  const [so,em,ca,co,rg,ap] = await Promise.all([
     sb.from('socios').select('*').order('nome'),
     sb.from('empresas').select('*').order('grupo').order('nome'),
     sb.from('categorias').select('*').order('nome'),
     sb.from('contas_bancarias').select('*').order('banco'),
-    sb.from('extrato_regras').select('*').order('ordem')
+    sb.from('extrato_regras').select('*').order('ordem'),
+    sb.from('acerto_postos').select('*').order('nome')
   ]);
   S.socios = so.data||[]; S.empresas = em.data||[]; S.categorias = ca.data||[]; S.contas = co.data||[];
-  S.regras = rg.data||[];
+  S.regras = rg.data||[]; S.acertoPostos = ap.data||[];
 }
 
 /* ============================================================
@@ -643,7 +648,7 @@ async function render(){
   try {
     await ({
       dashboard: pageDashboard, vendas: pageVendas, aportes: pageAportes,
-      retiradas: pageRetiradas, despesas: pageDespesas, receber: pageReceber,
+      retiradas: pageRetiradas, despesas: pageDespesas, receber: pageReceber, acerto: pageAcerto, creditos: pageCreditos,
       conciliacao: pageConciliacao,
       documentos: pageDocumentos, cadastros: pageCadastros
     })[S.page]();
@@ -1974,6 +1979,379 @@ async function pageReceber(){
         scales:{ x:axisCat, y:{...axisMoney, beginAtZero:true} } }
     });
   }
+}
+
+/* ============================================================
+   ACERTO DE CONTAS COM OS POSTOS DO GRUPO
+   O Garra tem sócio; os outros postos são só do Guilherme.
+   Tudo vira movimento com direção:
+     saiu   = saiu do Garra   -> o posto passa a dever ao Garra
+     entrou = entrou no Garra -> o Garra passa a dever ao posto
+   Com o valor por litro, o combustível entra no mesmo saldo em reais.
+   ============================================================ */
+const PRODUTO = { gasolina_comum:'Gasolina comum', gasolina_aditivada:'Gasolina aditivada',
+  etanol:'Etanol', diesel_s10:'Diesel S10', diesel_s500:'Diesel S500', outro:'Outro' };
+const PROD_COR = { gasolina_comum:PAL[3], gasolina_aditivada:PAL[0], etanol:PAL[2],
+  diesel_s10:PAL[6], diesel_s500:PAL[5], outro:PAL[4] };
+
+const nomePosto = id => byId(S.acertoPostos||[], id)?.nome || '—';
+const optPostos = () => (S.acertoPostos||[]).filter(p=>p.ativo)
+  .map(p=>({v:p.id,t:p.nome})).sort((a,b)=>a.t.localeCompare(b.t,'pt-BR'));
+const litrosFmt = n => Number(n||0).toLocaleString('pt-BR',{maximumFractionDigits:0}) + ' L';
+
+async function pageAcerto(){
+  const A = S.sub.acerto = S.sub.acerto || { vis:'posto', incluirQuitados:false };
+
+  const { data, error } = await sb.from('acerto_movimentos').select('*').order('data',{ascending:false});
+  if (error){ $('#view').innerHTML = `<div class="msg err">${esc(error.message)}</div>`; return; }
+  const todos = data || [];
+  const mov = A.incluirQuitados ? todos : todos.filter(m=>m.status!=='quitado');
+
+  const abertos = todos.filter(m=>m.status!=='quitado');
+  const sinal = m => m.direcao==='saiu' ? 1 : -1;          // + = o posto deve ao Garra
+  const saldoDe = arr => arr.reduce((a,m)=> a + sinal(m)*Number(m.valor||0), 0);
+
+  const saiu   = sum(abertos.filter(m=>m.direcao==='saiu'));
+  const entrou = sum(abertos.filter(m=>m.direcao==='entrou'));
+  const saldo  = saiu - entrou;
+
+  const litrosAberto = sum(abertos.filter(m=>m.tipo==='combustivel'),'litros');
+  const semPreco = abertos.filter(m=>m.tipo==='combustivel' && !Number(m.valor_litro));
+  const litrosSemPreco = sum(semPreco,'litros');
+
+  const ids = [...new Set(abertos.map(m=>m.posto_id))];
+  const porPosto = ids.map(id => {
+    const meus = abertos.filter(m=>m.posto_id===id);
+    return { id, nome: nomePosto(id),
+      dinSaiu:  sum(meus.filter(m=>m.tipo==='dinheiro' && m.direcao==='saiu')),
+      dinEnt:   sum(meus.filter(m=>m.tipo==='dinheiro' && m.direcao==='entrou')),
+      litros:   sum(meus.filter(m=>m.tipo==='combustivel'),'litros'),
+      combVal:  sum(meus.filter(m=>m.tipo==='combustivel')),
+      semPreco: meus.some(m=>m.tipo==='combustivel' && !Number(m.valor_litro)),
+      saldo:    saldoDe(meus) };
+  }).sort((a,b)=> b.saldo - a.saldo);
+
+  $('#view').innerHTML = `
+    ${roNote()}
+    <div class="grid tiles" style="margin-bottom:16px">
+      ${tile('Saiu do Garra', money(saiu), 'Dinheiro e combustível devolvido', PAL[1])}
+      ${tile('Entrou no Garra', money(entrou), 'Dinheiro recebido e combustível emprestado', PAL[2])}
+      ${tile(saldo >= 0 ? 'Os postos devem ao Garra' : 'O Garra deve aos postos',
+        money(Math.abs(saldo)), 'Saldo de tudo que está em aberto', saldo>=0?PAL[2]:PAL[1])}
+      ${tile('Combustível a devolver', litrosFmt(litrosAberto),
+        `${abertos.filter(m=>m.tipo==='combustivel').length} empréstimo(s) em aberto`, PAL[3])}
+    </div>
+
+    ${litrosSemPreco > 0 ? `<div class="msg info" style="margin-bottom:16px">
+      <b>${litrosFmt(litrosSemPreco)}</b> de combustível ainda estão <b>sem valor por litro</b>, então entram
+      no saldo como zero. Abra cada empréstimo e preencha o preço para o saldo em reais ficar completo.
+    </div>`:''}
+
+    ${porPosto.length ? `<div class="grid" style="margin-bottom:16px">
+      ${vizCard({ title:'Saldo por posto', sub:'Positivo: o posto deve ao Garra', canvas:'chAcSaldo',
+        legend: legendHTML(porPosto.slice(0,6).map((p,i)=>({c:p.saldo>=0?PAL[2]:PAL[1], t:p.nome, v:p.saldo}))),
+        table: miniTable([{t:'Posto'},{t:'Saldo',num:1}],
+          porPosto.map(p=>[esc(p.nome), `<span class="${p.saldo>=0?'pos':'neg'}">${money(p.saldo)}</span>`]),
+          ['Total', money(saldo)]) })}
+      ${vizCard({ title:'Combustível em aberto', sub:'Litros por posto', canvas:'chAcLit',
+        legend: legendHTML(porPosto.filter(p=>p.litros>0).map((p,i)=>({c:PAL[i%8], t:p.nome, v:p.litros}))),
+        table: miniTable([{t:'Posto'},{t:'Litros',num:1},{t:'Valorizado',num:1}],
+          porPosto.filter(p=>p.litros>0).map(p=>[esc(p.nome), litrosFmt(p.litros),
+            p.semPreco?'<span style="color:var(--warning)">falta preço</span>':money(p.combVal)]),
+          ['Total', litrosFmt(litrosAberto), '']) })}
+    </div>`:''}
+
+    <div class="sub-tabs">
+      <button data-v="posto" class="${A.vis==='posto'?'on':''}">Por posto</button>
+      <button data-v="mov"   class="${A.vis==='mov'?'on':''}">Movimentações</button>
+    </div>
+
+    ${toolbar(`<label style="display:flex;gap:7px;align-items:center;font-size:12.5px;color:var(--text-secondary);cursor:pointer">
+        <input type="checkbox" id="cbQuit" ${A.incluirQuitados?'checked':''}> mostrar quitados</label>
+      ${btnNovo('Nova movimentação','new')}`)}
+
+    <div class="tablecard"><div class="tablescroll"><table>
+    ${A.vis==='posto' ? `
+      <thead><tr><th>Posto</th><th class="num">Dinheiro que saiu</th><th class="num">Dinheiro que voltou</th>
+        <th class="num">Combustível</th><th class="num">Saldo</th><th>Situação</th></tr></thead>
+      <tbody id="tbody">${porPosto.length ? porPosto.map(p=>`
+        <tr data-s="${esc(p.nome.toLowerCase())}">
+          <td><b style="font-weight:600">${esc(p.nome)}</b></td>
+          <td class="num">${p.dinSaiu?money(p.dinSaiu):'—'}</td>
+          <td class="num">${p.dinEnt?money(p.dinEnt):'—'}</td>
+          <td class="num">${p.litros?`${litrosFmt(p.litros)}${p.semPreco?'':`<div style="font-size:11.5px;color:var(--text-muted)">${money(p.combVal)}</div>`}`:'—'}</td>
+          <td class="num"><b class="${p.saldo>=0?'pos':'neg'}">${money(p.saldo)}</b></td>
+          <td><span class="pill"><i style="background:${p.saldo>=0?'var(--good)':'var(--critical)'}"></i>${p.saldo>=0?'deve ao Garra':'o Garra deve'}</span></td>
+        </tr>`).join('') : emptyRow(6,'Nenhuma movimentação em aberto.')}</tbody>
+      ${porPosto.length?`<tfoot><tr><td>Total</td>
+        <td class="num">${money(sum(abertos.filter(m=>m.tipo==='dinheiro'&&m.direcao==='saiu')))}</td>
+        <td class="num">${money(sum(abertos.filter(m=>m.tipo==='dinheiro'&&m.direcao==='entrou')))}</td>
+        <td class="num">${litrosFmt(litrosAberto)}</td>
+        <td class="num"><b class="${saldo>=0?'pos':'neg'}">${money(saldo)}</b></td><td></td></tr></tfoot>`:''}
+    ` : `
+      <thead><tr><th>Data</th><th>Deve para / de</th><th>Tipo</th><th>Descrição</th>
+        <th class="num">Volume</th><th class="num">R$/L</th><th class="num">Valor</th><th>Situação</th><th></th></tr></thead>
+      <tbody id="tbody">${mov.length ? mov.map(m=>`
+        <tr data-s="${esc((nomePosto(m.posto_id)+' '+(m.descricao||'')+' '+(PRODUTO[m.produto]||'')+' '+brDate(m.data)).toLowerCase())}"
+            style="${m.status==='quitado'?'opacity:.5':''}">
+          <td>${brDate(m.data)}</td>
+          <td><b style="font-weight:600">${esc(nomePosto(m.posto_id))}</b>
+            <div style="font-size:11.5px;color:var(--text-muted)">${m.direcao==='saiu'?'saiu do Garra':'entrou no Garra'}</div></td>
+          <td><span class="pill"><i style="background:${m.tipo==='combustivel'?(PROD_COR[m.produto]||PAL[3]):PAL[6]}"></i>${m.tipo==='combustivel'?esc(PRODUTO[m.produto]||'Combustível'):'Dinheiro'}</span></td>
+          <td style="font-size:12.5px">${esc(m.descricao||'—')}${m.observacoes?`<div style="font-size:11.5px;color:var(--text-muted)">${esc(m.observacoes)}</div>`:''}</td>
+          <td class="num">${m.litros?litrosFmt(m.litros):'—'}</td>
+          <td class="num">${Number(m.valor_litro)?NUM.format(m.valor_litro):(m.tipo==='combustivel'?'<span style="color:var(--warning)">falta</span>':'—')}</td>
+          <td class="num"><b class="${m.direcao==='saiu'?'pos':'neg'}">${m.direcao==='saiu'?'+':'−'} ${money(m.valor)}</b></td>
+          <td><span class="pill"><i style="background:${m.status==='quitado'?'var(--good)':'var(--warning)'}"></i>${m.status==='quitado'?'Quitado':'Em aberto'}</span></td>
+          <td>${acts(m.id)}</td>
+        </tr>`).join('') : emptyRow(9,'Nenhuma movimentação registrada.')}</tbody>
+    `}
+    </table></div></div>`;
+
+  bindVizToggles(); wireSearch();
+  $$('.sub-tabs button').forEach(b=>b.addEventListener('click',()=>{ A.vis = b.dataset.v; render(); }));
+  $('#cbQuit')?.addEventListener('change', e=>{ A.incluirQuitados = e.target.checked; render(); });
+  bindCrud('acerto_movimentos', todos, formAcerto);
+
+  if (porPosto.length) S.charts.acSaldo = new Chart($('#chAcSaldo'), {
+    type:'bar',
+    data:{ labels: porPosto.map(p=>p.nome), datasets:[{ data: porPosto.map(p=>p.saldo),
+      backgroundColor: porPosto.map(p=>p.saldo>=0?PAL[2]:PAL[1]), borderColor:INK.surface,
+      borderWidth:1, borderRadius:4, maxBarThickness:26 }]},
+    options:{ indexAxis:'y', plugins:{legend:{display:false}, tooltip:tooltipCfg},
+      scales:{ x:{...axisMoney}, y:axisCat } }
+  });
+
+  const cl = porPosto.filter(p=>p.litros>0);
+  if (cl.length) S.charts.acLit = new Chart($('#chAcLit'), {
+    type:'bar',
+    data:{ labels: cl.map(p=>p.nome), datasets:[{ data: cl.map(p=>p.litros),
+      backgroundColor: cl.map((_,i)=>PAL[i%8]), borderColor:INK.surface, borderWidth:1,
+      borderRadius:4, maxBarThickness:26 }]},
+    options:{ indexAxis:'y', plugins:{legend:{display:false},
+      tooltip:{...tooltipCfg, callbacks:{label:c=>` ${litrosFmt(c.parsed.x)}`}}},
+      scales:{ x:{...axisCat, beginAtZero:true, ticks:{callback:v=>(v/1000)+' mil L'}}, y:axisCat } }
+  });
+}
+
+function formAcerto(r={}){
+  const ehComb = (r.tipo || 'combustivel') === 'combustivel';
+  openModal({
+    title: r.id ? 'Editar movimentação' : 'Nova movimentação',
+    sub: 'Acerto entre o Garra e um posto do grupo',
+    wide: true,
+    body: `<div class="frow">
+      ${fld('Centro de custo', inp('centro_custo','text', r.centro_custo||'Garra'))}
+      ${fld('Data', inp('data','date', r.data||iso(today()), 'required'))}
+      ${fld('Tipo de movimentação', sel('tipo', [{v:'combustivel',t:'Combustível'},{v:'dinheiro',t:'Dinheiro'}], r.tipo||'combustivel'))}
+      ${fld('Direção', sel('direcao', [
+          {v:'entrou',t:'Entrou no Garra — o Garra fica devendo'},
+          {v:'saiu',  t:'Saiu do Garra — o posto fica devendo'}], r.direcao||'entrou'), 'full')}
+      ${fld('Deve para / de qual posto', sel('posto_id', optPostos(), r.posto_id), 'full')}
+      ${fld('Descrição', inp('descricao','text', r.descricao), 'full')}
+
+      <div class="field full" id="boxComb" style="${ehComb?'':'display:none'}">
+        <div class="frow" style="margin:0">
+          ${fld('Produto', sel('produto', opts(PRODUTO), r.produto||'gasolina_comum'))}
+          ${fld('Volume (litros)', inp('litros','text', r.litros!=null?NUM.format(r.litros):'', 'data-money="1" inputmode="decimal" placeholder="5.000"'))}
+          ${fld('Valor por litro (R$)', inp('valor_litro','text', r.valor_litro!=null?Number(r.valor_litro).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:4}):'', 'inputmode="decimal" placeholder="5,89"'))}
+          ${fld('Valor total (R$)', inp('total_calc','text','', 'readonly style="background:var(--page);font-weight:600"'))}
+        </div>
+      </div>
+
+      <div class="field" id="boxDin" style="${ehComb?'display:none':''}">
+        <label>Valor (R$)</label>
+        <input name="valor" type="text" data-money="1" inputmode="decimal" placeholder="0,00"
+               value="${r.valor!=null && !ehComb ? NUM.format(r.valor) : ''}">
+      </div>
+
+      ${fld('Situação', sel('status', [{v:'aberto',t:'Em aberto'},{v:'quitado',t:'Quitado'}], r.status||'aberto'))}
+      ${fld('Data da quitação', inp('data_quitacao','date', r.data_quitacao||''))}
+      ${fld('Observações', txa('observacoes', r.observacoes), 'full')}
+    </div>`,
+    footer: `<button class="btn ghost" data-close>Cancelar</button><button class="btn" id="sv">Salvar</button>`,
+    onMount: m => {
+      const selTipo = m.querySelector('[name="tipo"]');
+      const boxC = $('#boxComb', m), boxD = $('#boxDin', m);
+      const elL = m.querySelector('[name="litros"]'), elP = m.querySelector('[name="valor_litro"]'),
+            elT = m.querySelector('[name="total_calc"]');
+
+      const recalc = () => {
+        const l = parseMoney(elL.value) || 0, p = parseMoney(elP.value) || 0;
+        elT.value = NUM.format(l * p);
+      };
+      const trocaTipo = () => {
+        const comb = selTipo.value === 'combustivel';
+        boxC.style.display = comb ? '' : 'none';
+        boxD.style.display = comb ? 'none' : '';
+        if (comb) recalc();
+      };
+      selTipo.addEventListener('change', trocaTipo);
+      [elL, elP].forEach(el => { el.addEventListener('input', recalc); el.addEventListener('blur', recalc); });
+      recalc();
+
+      $('#sv',m).addEventListener('click', async ()=>{
+        const d = formData(m);
+        delete d.total_calc;
+        if (!d.posto_id) return toast('Escolha o posto.', true);
+        if (d.tipo === 'combustivel') {
+          d.litros = parseMoney(elL.value);
+          d.valor_litro = parseMoney(elP.value) || null;
+          if (!d.litros) return toast('Informe o volume em litros.', true);
+          d.valor = 0;                       // o banco recalcula litros x preco
+        } else {
+          if (!d.valor) return toast('Informe o valor.', true);
+          d.produto = null; d.litros = null; d.valor_litro = null;
+        }
+        if (await save('acerto_movimentos', d, r.id)) { closeModal(); render(); }
+      });
+    }
+  });
+}
+
+/* ============================================================
+   CRÉDITOS — o que terceiros devem ao Garra
+   Não é cliente e não é receita: é direito a receber. O caso principal
+   é o antigo proprietário, pelas rescisões que o Garra pagou por ele.
+   ============================================================ */
+const ORIGEM_CRED = { rescisao:'Rescisão', emprestimo:'Empréstimo',
+  adiantamento:'Adiantamento', reembolso:'Reembolso', outro:'Outro' };
+
+async function pageCreditos(){
+  const K = S.sub.cred = S.sub.cred || { vis:'devedor', incluirRecebidos:false };
+
+  const { data, error } = await sb.from('creditos').select('*').order('data',{ascending:false});
+  if (error){ $('#view').innerHTML = `<div class="msg err">${esc(error.message)}</div>`; return; }
+  const todos = data || [];
+  const rows = K.incluirRecebidos ? todos : todos.filter(c=>c.status!=='recebido');
+
+  const total     = sum(todos);
+  const recebido  = sum(todos,'valor_recebido');
+  const aberto    = total - recebido;
+
+  const devedores = [...new Set(todos.map(c=>c.devedor))].map(d => {
+    const meus = todos.filter(c=>c.devedor===d);
+    return { d, n: meus.length, total: sum(meus), rec: sum(meus,'valor_recebido'),
+             ab: sum(meus) - sum(meus,'valor_recebido'),
+             antiga: meus.map(c=>c.data).sort()[0] };
+  }).sort((a,b)=>b.ab-a.ab);
+
+  const porOrigem = [...groupSum(todos, c=>ORIGEM_CRED[c.origem]||c.origem)].sort((a,b)=>b[1]-a[1]);
+
+  $('#view').innerHTML = `
+    ${roNote()}
+    <div class="grid tiles" style="margin-bottom:16px">
+      ${tile('Total a receber', money(aberto), `${todos.filter(c=>c.status!=='recebido').length} item(ns) em aberto`, PAL[2])}
+      ${tile('Já recebido', money(recebido), total?`${pct(recebido,total)} do total`:'', PAL[0])}
+      ${tile('Crédito total', money(total), `${todos.length} lançamento${todos.length===1?'':'s'}`, PAL[6])}
+      ${devedores[0] ? tile('Maior devedor', money(devedores[0].ab),
+        `${esc(devedores[0].d)} · desde ${brDate(devedores[0].antiga)}`, PAL[3]) : ''}
+    </div>
+
+    ${todos.length ? `<div class="grid" style="margin-bottom:16px">
+      ${vizCard({ title:'Quem deve ao Garra', sub:'Saldo em aberto por devedor', canvas:'chCrDev',
+        legend: legendHTML(devedores.map((x,i)=>({c:PAL[i%8], t:x.d, v:x.ab}))),
+        table: miniTable([{t:'Devedor'},{t:'Itens',num:1},{t:'Recebido',num:1},{t:'Em aberto',num:1}],
+          devedores.map(x=>[esc(x.d), String(x.n), x.rec?money(x.rec):'—', money(x.ab)]),
+          ['Total', String(todos.length), money(recebido), money(aberto)]) })}
+      ${vizCard({ title:'Por origem', sub:'De onde vem o crédito', canvas:'chCrOri',
+        legend: legendHTML(porOrigem.map((o,i)=>({c:PAL[i%8], t:o[0], v:o[1]}))),
+        table: miniTable([{t:'Origem'},{t:'Valor',num:1},{t:'%',num:1}],
+          porOrigem.map(o=>[esc(o[0]), money(o[1]), pct(o[1],total)]),
+          ['Total', money(total), '100%']) })}
+    </div>`:''}
+
+    ${toolbar(`<label style="display:flex;gap:7px;align-items:center;font-size:12.5px;color:var(--text-secondary);cursor:pointer">
+        <input type="checkbox" id="cbRec" ${K.incluirRecebidos?'checked':''}> mostrar já recebidos</label>
+      ${btnNovo('Novo crédito','new')}`)}
+
+    <div class="tablecard"><div class="tablescroll"><table>
+      <thead><tr><th>Data</th><th>Devedor</th><th>Origem</th><th>Descrição</th>
+        <th class="num">Principal</th><th class="num">Encargos</th><th class="num">Valor</th>
+        <th class="num">Recebido</th><th class="num">Em aberto</th><th>Situação</th><th></th></tr></thead>
+      <tbody id="tbody">${rows.length ? rows.map(c=>`
+        <tr data-s="${esc(((c.devedor||'')+' '+(c.descricao||'')+' '+(c.referencia||'')).toLowerCase())}"
+            style="${c.status==='recebido'?'opacity:.5':''}">
+          <td>${brDate(c.data)}</td>
+          <td><b style="font-weight:600">${esc(c.devedor)}</b></td>
+          <td><span class="pill"><i style="background:${PAL[Object.keys(ORIGEM_CRED).indexOf(c.origem)%8]}"></i>${esc(ORIGEM_CRED[c.origem]||c.origem)}</span></td>
+          <td style="font-size:12.5px">${esc(c.descricao||'—')}${c.referencia?`<div style="font-size:11.5px;color:var(--text-muted)">${esc(c.referencia)}</div>`:''}
+            ${c.observacoes?`<div style="font-size:11.5px;color:var(--text-muted)">${esc(c.observacoes)}</div>`:''}</td>
+          <td class="num">${c.valor_base!=null?money(c.valor_base):'—'}</td>
+          <td class="num">${c.valor_encargos!=null?money(c.valor_encargos):'—'}</td>
+          <td class="num"><b>${money(c.valor)}</b></td>
+          <td class="num">${Number(c.valor_recebido)>0?money(c.valor_recebido):'—'}</td>
+          <td class="num"><b>${money(Number(c.valor)-Number(c.valor_recebido))}</b></td>
+          <td><span class="pill"><i style="background:${c.status==='recebido'?'var(--good)':c.status==='parcial'?'var(--warning)':'var(--critical)'}"></i>${c.status==='recebido'?'Recebido':c.status==='parcial'?'Parcial':'Em aberto'}</span></td>
+          <td>${acts(c.id)}</td>
+        </tr>`).join('') : emptyRow(11,'Nenhum crédito registrado.')}</tbody>
+      ${rows.length?`<tfoot><tr><td colspan="6">Total</td>
+        <td class="num">${money(sum(rows))}</td>
+        <td class="num">${money(sum(rows,'valor_recebido'))}</td>
+        <td class="num"><b>${money(sum(rows)-sum(rows,'valor_recebido'))}</b></td>
+        <td colspan="2"></td></tr></tfoot>`:''}
+    </table></div></div>`;
+
+  bindVizToggles(); wireSearch();
+  $('#cbRec')?.addEventListener('change', e=>{ K.incluirRecebidos = e.target.checked; render(); });
+  bindCrud('creditos', todos, formCredito);
+
+  if (devedores.length) S.charts.crDev = new Chart($('#chCrDev'), {
+    type:'bar',
+    data:{ labels: devedores.map(x=>x.d), datasets:[{ data: devedores.map(x=>x.ab),
+      backgroundColor: devedores.map((_,i)=>PAL[i%8]), borderColor:INK.surface, borderWidth:1,
+      borderRadius:4, maxBarThickness:28 }]},
+    options:{ indexAxis:'y', plugins:{legend:{display:false}, tooltip:tooltipCfg},
+      scales:{ x:{...axisMoney, beginAtZero:true}, y:axisCat } }
+  });
+  if (porOrigem.length) S.charts.crOri = new Chart($('#chCrOri'), {
+    type:'doughnut',
+    data:{ labels: porOrigem.map(o=>o[0]), datasets:[{ data: porOrigem.map(o=>o[1]),
+      backgroundColor: porOrigem.map((_,i)=>PAL[i%8]), borderColor:INK.surface, borderWidth:2, hoverOffset:6 }]},
+    options:{ cutout:'58%', plugins:{legend:{display:false},
+      tooltip:{...tooltipCfg, callbacks:{label:c=>` ${c.label}: ${money(c.parsed)} (${pct(c.parsed,total)})`}}} }
+  });
+}
+
+function formCredito(r={}){
+  openModal({
+    title: r.id ? 'Editar crédito' : 'Novo crédito',
+    sub: 'Valor que alguém deve ao Garra',
+    wide: true,
+    body: `<div class="frow">
+      ${fld('Data', inp('data','date', r.data||iso(today()), 'required'))}
+      ${fld('Devedor', inp('devedor','text', r.devedor||'Antigo proprietário'))}
+      ${fld('Origem', sel('origem', opts(ORIGEM_CRED), r.origem||'rescisao'))}
+      ${fld('Descrição', inp('descricao','text', r.descricao), 'full')}
+      ${fld('Referência', inp('referencia','text', r.referencia, 'placeholder="cargo, documento, contrato..."'))}
+      ${fld('Principal (R$)', inp('valor_base','text', r.valor_base!=null?NUM.format(r.valor_base):'', 'data-money="1" inputmode="decimal" placeholder="0,00"'))}
+      ${fld('Encargos (R$)', inp('valor_encargos','text', r.valor_encargos!=null?NUM.format(r.valor_encargos):'', 'data-money="1" inputmode="decimal" placeholder="0,00"'))}
+      ${fld('Valor total (R$)', inp('valor','text', r.valor!=null?NUM.format(r.valor):'', 'data-money="1" inputmode="decimal" placeholder="0,00"'))}
+      ${fld('Já recebido (R$)', inp('valor_recebido','text', r.valor_recebido!=null?NUM.format(r.valor_recebido):'', 'data-money="1" inputmode="decimal" placeholder="0,00"'))}
+      ${fld('Data do recebimento', inp('data_recebimento','date', r.data_recebimento||''))}
+      ${fld('Observações', txa('observacoes', r.observacoes), 'full')}
+    </div>`,
+    footer: `<button class="btn ghost" data-close>Cancelar</button><button class="btn" id="sv">Salvar</button>`,
+    onMount: m => {
+      // principal + encargos preenche o total sozinho, se ele ainda estiver vazio
+      const b = m.querySelector('[name="valor_base"]'), e = m.querySelector('[name="valor_encargos"]'),
+            t = m.querySelector('[name="valor"]');
+      const soma = () => {
+        const v = (parseMoney(b.value)||0) + (parseMoney(e.value)||0);
+        if (v && (!t.value.trim() || t.dataset.auto)) { t.value = NUM.format(v); t.dataset.auto = '1'; }
+      };
+      [b,e].forEach(el=>el.addEventListener('blur', soma));
+      t.addEventListener('input', ()=>{ delete t.dataset.auto; });
+
+      $('#sv',m).addEventListener('click', async ()=>{
+        const d = formData(m);
+        if (!d.devedor) return toast('Informe o devedor.', true);
+        if (!d.valor)   return toast('Informe o valor.', true);
+        d.valor_recebido = d.valor_recebido || 0;
+        if (await save('creditos', d, r.id)) { closeModal(); render(); }
+      });
+    }
+  });
 }
 
 /* ============================================================
