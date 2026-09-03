@@ -2019,16 +2019,16 @@ async function pageAcerto(){
   const movBase = A.incluirQuitados ? todos : todos.filter(m=>m.status!=='quitado');
 
   const abertos = todos.filter(m=>m.status!=='quitado');
-  const sinal = m => m.direcao==='saiu' ? 1 : -1;          // + = o posto deve ao Garra
+  const sinal = m => m.direcao==='entrou' ? 1 : -1;   // + = entrou no Garra, como no extrato
   const saldoDe = arr => arr.reduce((a,m)=> a + sinal(m)*Number(m.valor||0), 0);
 
   const saiu   = sum(abertos.filter(m=>m.direcao==='saiu'));
   const entrou = sum(abertos.filter(m=>m.direcao==='entrou'));
-  const saldo  = saiu - entrou;
+  const saldo  = entrou - saiu;
 
   const dinSaiu   = sum(abertos.filter(m=>m.tipo==='dinheiro' && m.direcao==='saiu'));
   const dinEnt    = sum(abertos.filter(m=>m.tipo==='dinheiro' && m.direcao==='entrou'));
-  const saldoDin  = dinSaiu - dinEnt;                       // + = os postos devem
+  const saldoDin  = dinEnt - dinSaiu;                       // + = entrou no Garra
   const saldoComb = saldoDe(abertos.filter(m=>m.tipo==='combustivel'));
 
   const litrosAberto = sum(abertos.filter(m=>m.tipo==='combustivel'),'litros');
@@ -2057,16 +2057,16 @@ async function pageAcerto(){
     <div class="grid tiles" style="margin-bottom:16px">
       ${tile('Dinheiro', money(Math.abs(saldoDin)),
         `Saiu ${money(dinSaiu)} · voltou ${money(dinEnt)}<br>
-         <b>${saldoDin >= 0 ? 'a receber dos postos' : 'o Garra deve'}</b>`,
+         <b>${saldoDin >= 0 ? 'o Garra deve' : 'a receber dos postos'}</b>`,
         saldoDin>=0?PAL[2]:PAL[1], saldoDin>=0?'pos':'neg')}
 
       ${tile('Combustível', money(Math.abs(saldoComb)),
         `${litrosFmt(litrosAberto)} em aberto${litrosSemPreco>0?` · ${litrosFmt(litrosSemPreco)} sem preço`:''}<br>
-         <b>${saldoComb >= 0 ? 'a receber dos postos' : 'o Garra deve'}</b>`,
+         <b>${saldoComb >= 0 ? 'o Garra deve' : 'a receber dos postos'}</b>`,
         saldoComb>=0?PAL[2]:PAL[3], saldoComb>=0?'pos':'neg')}
 
-      ${tile(saldo >= 0 ? 'Diferença a favor do Garra' : 'Diferença contra o Garra',
-        money(Math.abs(saldo)), 'Entradas menos saídas, dinheiro e combustível juntos',
+      ${tile(saldo >= 0 ? 'O Garra deve aos postos' : 'Os postos devem ao Garra',
+        money(Math.abs(saldo)), 'Entrou menos saiu, dinheiro e combustível juntos',
         saldo>=0?PAL[2]:PAL[1], saldo>=0?'pos':'neg',
         saldo>=0 ? 'color-mix(in srgb, var(--good) 9%, var(--surface))'
                  : 'color-mix(in srgb, var(--critical) 9%, var(--surface))')}
@@ -2085,7 +2085,7 @@ async function pageAcerto(){
     </div>`:''}
 
     ${porPosto.length ? `<div class="grid" style="margin-bottom:16px">
-      ${vizCard({ title:'Saldo por posto', sub:'Positivo: o posto deve ao Garra', canvas:'chAcSaldo',
+      ${vizCard({ title:'Saldo por posto', sub:'Positivo: entrou no Garra · negativo: saiu', canvas:'chAcSaldo',
         legend: legendHTML(porPosto.slice(0,6).map((p,i)=>({c:p.saldo>=0?PAL[2]:PAL[1], t:p.nome, v:p.saldo}))),
         table: miniTable([{t:'Posto'},{t:'Saldo',num:1}],
           porPosto.map(p=>[esc(p.nome), `<span class="${p.saldo>=0?'pos':'neg'}">${money(p.saldo)}</span>`]),
@@ -2122,7 +2122,7 @@ async function pageAcerto(){
           <td class="num">${p.dinEnt?money(p.dinEnt):'—'}</td>
           <td class="num">${p.litros?`${litrosFmt(p.litros)}${p.semPreco?'':`<div style="font-size:11.5px;color:var(--text-muted)">${money(p.combVal)}</div>`}`:'—'}</td>
           <td class="num"><b class="${p.saldo>=0?'pos':'neg'}">${money(p.saldo)}</b></td>
-          <td><span class="pill"><i style="background:${p.saldo>=0?'var(--good)':'var(--critical)'}"></i>${p.saldo>=0?'deve ao Garra':'o Garra deve'}</span></td>
+          <td><span class="pill"><i style="background:${p.saldo>=0?'var(--good)':'var(--critical)'}"></i>${p.saldo>=0?'o Garra deve':'deve ao Garra'}</span></td>
         </tr>`).join('') : emptyRow(6,'Nenhuma movimentação em aberto.')}</tbody>
       ${porPosto.length?`<tfoot><tr><td>Total</td>
         <td class="num">${money(sum(abertosF.filter(m=>m.tipo==='dinheiro'&&m.direcao==='saiu')))}</td>
