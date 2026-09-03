@@ -844,8 +844,10 @@ function miniTable(cols, rows, foot){
   ${foot?`<tfoot><tr>${foot.map((v,i)=>`<td class="${cols[i].num?'num':''}">${v}</td>`).join('')}</tr></tfoot>`:''}</table>`;
 }
 
-function tile(lbl, val, foot='', color=null, cls=''){
-  return `<div class="card tile">
+function tile(lbl, val, foot='', color=null, cls='', fundo=null){
+  // fundo: uma cor de fundo bem clarinha, para o card que precisa saltar
+  const est = fundo ? ` style="background:${fundo};border-color:${fundo}"` : '';
+  return `<div class="card tile"${est}>
     <div class="lbl">${color?`<i style="background:${color}"></i>`:''}${esc(lbl)}</div>
     <div class="val ${cls}">${val}</div>
     ${foot?`<div class="foot">${foot}</div>`:''}
@@ -2024,6 +2026,11 @@ async function pageAcerto(){
   const entrou = sum(abertos.filter(m=>m.direcao==='entrou'));
   const saldo  = saiu - entrou;
 
+  const dinSaiu   = sum(abertos.filter(m=>m.tipo==='dinheiro' && m.direcao==='saiu'));
+  const dinEnt    = sum(abertos.filter(m=>m.tipo==='dinheiro' && m.direcao==='entrou'));
+  const saldoDin  = dinSaiu - dinEnt;                       // + = os postos devem
+  const saldoComb = saldoDe(abertos.filter(m=>m.tipo==='combustivel'));
+
   const litrosAberto = sum(abertos.filter(m=>m.tipo==='combustivel'),'litros');
   const semPreco = abertos.filter(m=>m.tipo==='combustivel' && !Number(m.valor_litro));
   const litrosSemPreco = sum(semPreco,'litros');
@@ -2043,17 +2050,33 @@ async function pageAcerto(){
   $('#view').innerHTML = `
     ${roNote()}
     <div class="grid tiles" style="margin-bottom:16px">
-      ${tile('Saiu do Garra', money(saiu), 'Dinheiro e combustível devolvido', PAL[1])}
-      ${tile('Entrou no Garra', money(entrou), 'Dinheiro recebido e combustível emprestado', PAL[2])}
-      ${tile(saldo >= 0 ? 'Os postos devem ao Garra' : 'O Garra deve aos postos',
-        money(Math.abs(saldo)), 'Saldo de tudo que está em aberto', saldo>=0?PAL[2]:PAL[1])}
-      ${tile('Combustível a devolver', litrosFmt(litrosAberto),
-        `${abertos.filter(m=>m.tipo==='combustivel').length} empréstimo(s) em aberto`, PAL[3])}
+      ${tile('Dinheiro', money(Math.abs(saldoDin)),
+        `Saiu ${money(dinSaiu)} · voltou ${money(dinEnt)}<br>
+         <b>${saldoDin >= 0 ? 'a receber dos postos' : 'o Garra deve'}</b>`,
+        saldoDin>=0?PAL[2]:PAL[1], saldoDin>=0?'pos':'neg')}
+
+      ${tile('Combustível', money(Math.abs(saldoComb)),
+        `${litrosFmt(litrosAberto)} em aberto${litrosSemPreco>0?` · ${litrosFmt(litrosSemPreco)} sem preço`:''}<br>
+         <b>${saldoComb >= 0 ? 'a receber dos postos' : 'o Garra deve'}</b>`,
+        saldoComb>=0?PAL[2]:PAL[3], saldoComb>=0?'pos':'neg')}
+
+      ${tile(saldo >= 0 ? 'Diferença a favor do Garra' : 'Diferença contra o Garra',
+        money(Math.abs(saldo)), 'Entradas menos saídas, dinheiro e combustível juntos',
+        saldo>=0?PAL[2]:PAL[1], saldo>=0?'pos':'neg',
+        saldo>=0 ? 'color-mix(in srgb, var(--good) 9%, var(--surface))'
+                 : 'color-mix(in srgb, var(--critical) 9%, var(--surface))')}
     </div>
 
-    ${litrosSemPreco > 0 ? `<div class="msg info" style="margin-bottom:16px">
+    <div class="msg info" style="margin-bottom:16px">
+      <b>O acerto é em reais.</b> Cada empréstimo de combustível entra pelo valor da nota do dia em que
+      foi feito, e esse valor fica congelado — o que o preço fizer depois não muda mais a dívida.
+      Por isso dinheiro e combustível somam na mesma conta, e o card da diferença é o número que vale.
+    </div>
+
+    ${litrosSemPreco > 0 ? `<div class="msg" style="margin-bottom:16px;border-left:3px solid var(--warning)">
       <b>${litrosFmt(litrosSemPreco)}</b> de combustível ainda estão <b>sem valor por litro</b>, então entram
-      no saldo como zero. Abra cada empréstimo e preencha o preço para o saldo em reais ficar completo.
+      no saldo como zero. Como o acerto é em reais, esses litros não estão sendo cobrados —
+      abra cada um e preencha a nota.
     </div>`:''}
 
     ${porPosto.length ? `<div class="grid" style="margin-bottom:16px">
