@@ -2011,12 +2011,12 @@ const optPostos = () => (S.acertoPostos||[]).filter(p=>p.ativo)
 const litrosFmt = n => Number(n||0).toLocaleString('pt-BR',{maximumFractionDigits:0}) + ' L';
 
 async function pageAcerto(){
-  const A = S.sub.acerto = S.sub.acerto || { vis:'posto', incluirQuitados:false };
+  const A = S.sub.acerto = S.sub.acerto || { vis:'posto', incluirQuitados:false, tipo:'todos' };
 
   const { data, error } = await sb.from('acerto_movimentos').select('*').order('data',{ascending:false});
   if (error){ $('#view').innerHTML = `<div class="msg err">${esc(error.message)}</div>`; return; }
   const todos = data || [];
-  const mov = A.incluirQuitados ? todos : todos.filter(m=>m.status!=='quitado');
+  const movBase = A.incluirQuitados ? todos : todos.filter(m=>m.status!=='quitado');
 
   const abertos = todos.filter(m=>m.status!=='quitado');
   const sinal = m => m.direcao==='saiu' ? 1 : -1;          // + = o posto deve ao Garra
@@ -2035,9 +2035,14 @@ async function pageAcerto(){
   const semPreco = abertos.filter(m=>m.tipo==='combustivel' && !Number(m.valor_litro));
   const litrosSemPreco = sum(semPreco,'litros');
 
-  const ids = [...new Set(abertos.map(m=>m.posto_id))];
+  // filtro de tipo: vale para as tabelas e os graficos, nao para os cards
+  const doTipo = arr => A.tipo==='todos' ? arr : arr.filter(m=>m.tipo===A.tipo);
+  const abertosF = doTipo(abertos);
+  const mov = doTipo(movBase);
+
+  const ids = [...new Set(abertosF.map(m=>m.posto_id))];
   const porPosto = ids.map(id => {
-    const meus = abertos.filter(m=>m.posto_id===id);
+    const meus = abertosF.filter(m=>m.posto_id===id);
     return { id, nome: nomePosto(id),
       dinSaiu:  sum(meus.filter(m=>m.tipo==='dinheiro' && m.direcao==='saiu')),
       dinEnt:   sum(meus.filter(m=>m.tipo==='dinheiro' && m.direcao==='entrou')),
@@ -2098,7 +2103,11 @@ async function pageAcerto(){
       <button data-v="mov"   class="${A.vis==='mov'?'on':''}">Movimentações</button>
     </div>
 
-    ${toolbar(`<label style="display:flex;gap:7px;align-items:center;font-size:12.5px;color:var(--text-secondary);cursor:pointer">
+    ${toolbar(`<div class="sub-tabs" style="margin:0">
+        ${[['todos','Todos'],['combustivel','Combustível'],['dinheiro','Dinheiro']].map(([v,t])=>
+          `<button data-tp="${v}" class="${A.tipo===v?'on':''}">${t}</button>`).join('')}
+      </div>
+      <label style="display:flex;gap:7px;align-items:center;font-size:12.5px;color:var(--text-secondary);cursor:pointer">
         <input type="checkbox" id="cbQuit" ${A.incluirQuitados?'checked':''}> mostrar quitados</label>
       ${btnNovo('Nova movimentação','new')}`)}
 
@@ -2116,10 +2125,10 @@ async function pageAcerto(){
           <td><span class="pill"><i style="background:${p.saldo>=0?'var(--good)':'var(--critical)'}"></i>${p.saldo>=0?'deve ao Garra':'o Garra deve'}</span></td>
         </tr>`).join('') : emptyRow(6,'Nenhuma movimentação em aberto.')}</tbody>
       ${porPosto.length?`<tfoot><tr><td>Total</td>
-        <td class="num">${money(sum(abertos.filter(m=>m.tipo==='dinheiro'&&m.direcao==='saiu')))}</td>
-        <td class="num">${money(sum(abertos.filter(m=>m.tipo==='dinheiro'&&m.direcao==='entrou')))}</td>
-        <td class="num">${litrosFmt(litrosAberto)}</td>
-        <td class="num"><b class="${saldo>=0?'pos':'neg'}">${money(saldo)}</b></td><td></td></tr></tfoot>`:''}
+        <td class="num">${money(sum(abertosF.filter(m=>m.tipo==='dinheiro'&&m.direcao==='saiu')))}</td>
+        <td class="num">${money(sum(abertosF.filter(m=>m.tipo==='dinheiro'&&m.direcao==='entrou')))}</td>
+        <td class="num">${litrosFmt(sum(abertosF.filter(m=>m.tipo==='combustivel'),'litros'))}</td>
+        <td class="num"><b class="${porPosto.reduce((a,p)=>a+p.saldo,0)>=0?'pos':'neg'}">${money(porPosto.reduce((a,p)=>a+p.saldo,0))}</b></td><td></td></tr></tfoot>`:''}
     ` : `
       <thead><tr><th>Data</th><th>Deve para / de</th><th>Tipo</th><th>Descrição</th>
         <th class="num">Volume</th><th class="num">R$/L</th><th class="num">Valor</th><th>Situação</th><th></th></tr></thead>
@@ -2133,16 +2142,20 @@ async function pageAcerto(){
           <td style="font-size:12.5px">${esc(m.descricao||'—')}${m.documento?`<div style="font-size:11.5px;color:var(--text-muted)">nota ${esc(m.documento)}</div>`:''}${m.observacoes?`<div style="font-size:11.5px;color:var(--text-muted)">${esc(m.observacoes)}</div>`:''}</td>
           <td class="num">${m.litros?litrosFmt(m.litros):'—'}</td>
           <td class="num">${Number(m.valor_litro)?NUM.format(m.valor_litro):(m.tipo==='combustivel'?'<span style="color:var(--warning)">falta</span>':'—')}</td>
-          <td class="num"><b class="${m.direcao==='saiu'?'pos':'neg'}">${m.direcao==='saiu'?'+':'−'} ${money(m.valor)}</b></td>
+          <td class="num"><b class="${m.direcao==='entrou'?'pos':'neg'}">${m.direcao==='entrou'?'+':'−'} ${money(m.valor)}</b></td>
           <td><span class="pill"><i style="background:${m.status==='quitado'?'var(--good)':'var(--warning)'}"></i>${m.status==='quitado'?'Quitado':'Em aberto'}</span></td>
           <td>${acts(m.id)}</td>
         </tr>`).join('') : emptyRow(9,'Nenhuma movimentação registrada.')}</tbody>
+      ${mov.length?`<tfoot><tr><td colspan="6">Entrou menos saiu no período listado</td>
+        <td class="num"><b class="${(sum(mov.filter(m=>m.direcao==='entrou'))-sum(mov.filter(m=>m.direcao==='saiu')))>=0?'pos':'neg'}">${money(sum(mov.filter(m=>m.direcao==='entrou'))-sum(mov.filter(m=>m.direcao==='saiu')))}</b></td>
+        <td colspan="2"></td></tr></tfoot>`:''}
     `}
     </table></div></div>`;
 
   bindVizToggles(); wireSearch();
-  $$('.sub-tabs button').forEach(b=>b.addEventListener('click',()=>{ A.vis = b.dataset.v; render(); }));
+  $$('.sub-tabs button[data-v]').forEach(b=>b.addEventListener('click',()=>{ A.vis = b.dataset.v; render(); }));
   $('#cbQuit')?.addEventListener('change', e=>{ A.incluirQuitados = e.target.checked; render(); });
+  $$('[data-tp]').forEach(b=>b.addEventListener('click', ()=>{ A.tipo = b.dataset.tp; render(); }));
   bindCrud('acerto_movimentos', todos, formAcerto);
 
   if (porPosto.length) S.charts.acSaldo = new Chart($('#chAcSaldo'), {
