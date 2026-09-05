@@ -2,7 +2,7 @@
 # Baixa a versao mais recente do robo direto do GitHub.
 cd "$(dirname "$0")" || exit 1
 echo "Atualizando o robo..."
-for f in sync.cjs dre-imex.cjs auditoria-saidas.cjs descobrir-taxas.cjs instalar.command README.md; do
+for f in sync.cjs dre-imex.cjs auditoria-saidas.cjs descobrir-taxas.cjs detalhar-conta.cjs instalar.command README.md; do
   curl -fsSL -o "$f" "https://raw.githubusercontent.com/parentepetro/dre-garra/main/robo-imex/$f" \
     && echo "  ok  $f" || echo "  X   falhou: $f"
 done
