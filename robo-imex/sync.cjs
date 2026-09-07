@@ -219,20 +219,23 @@ async function enviar(tipo, rows) {
 
     // id sintetico estavel: mes (1..) * 1.000.000 + o codigo da conta virado numero.
     // Cabe num integer e nao colide com o id do contas a pagar.
+    // 3.2 = despesas; 3.3 = nao operacionais (perdas de caixa, alimentacao...) — as 3.3 ganham +700000
+    // para nunca colidir com um codigo do 3.2.
     const idSintetico = (competencia, codigo) => {
       const [ano, mes] = competencia.split('-').map(Number);
       const m = (ano - 2026) * 12 + mes;
-      const resto = codigo.replace(/^3\.2\.?/, '').split('.')
+      const naoOp = codigo.startsWith('3.3');
+      const resto = codigo.replace(/^3\.[23]\.?/, '').split('.')
         .map(x => String(x).padStart(2, '0')).join('');
-      return 800000000 + m * 1000000 + (Number(resto) || 0);
+      return 800000000 + m * 1000000 + (naoOp ? 700000 : 0) + (Number(resto) || 0);
     };
 
     for (const m of lista) {
       try {
         const contas = await buscarDre(gql, { filial: FILIAL, ini: m.ini, fim: m.fim, regimeCaixa: true });
-        const folhas = folhasDe(contas, '3.2');
+        const folhas = [...folhasDe(contas, '3.2'), ...folhasDe(contas, '3.3')];
         const soma   = folhas.reduce((a, k) => a + contas[k].valor, 0);
-        const grupo  = contas['3.2']?.valor;
+        const grupo  = (contas['3.2']?.valor ?? 0) + (contas['3.3']?.valor ?? 0);
 
         folhas.forEach(cod => {
           const c = contas[cod];

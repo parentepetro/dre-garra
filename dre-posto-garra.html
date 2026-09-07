@@ -2167,6 +2167,21 @@ async function pageAcerto(){
                  : 'color-mix(in srgb, var(--critical) 9%, var(--surface))')}
     </div>
 
+    ${(() => {
+      // conta corrente de socio: cadastrado no acerto com "(sócio)" no nome
+      const socios = (S.acertoPostos||[]).filter(p => /\(s[oó]cio\)/i.test(p.nome||''));
+      if (!socios.length) return '';
+      return `<div class="grid tiles" style="margin-bottom:16px">${socios.map(p => {
+        const meus = abertos.filter(m => m.posto_id === p.id);
+        const s = saldoDe(meus);                        // + = devolveu mais do que pegou
+        const pegou = sum(meus.filter(m=>m.direcao==='saiu')), devolveu = sum(meus.filter(m=>m.direcao==='entrou'));
+        return tile(`Conta corrente — ${esc(p.nome.replace(/\s*\(s[oó]cio\)/i,''))}`, money(Math.abs(s)),
+          `Pegou em dinheiro ${money(pegou)} · devolveu ${money(devolveu)}<br><b>${s < 0 ? 'deve ao Garra' : s > 0 ? 'o Garra deve a ele' : 'zerado'}</b>`,
+          s < 0 ? PAL[1] : PAL[2], s < 0 ? 'neg' : 'pos',
+          s < 0 ? 'color-mix(in srgb, var(--critical) 9%, var(--surface))' : 'color-mix(in srgb, var(--good) 9%, var(--surface))');
+      }).join('')}</div>`;
+    })()}
+
     <div class="msg info" style="margin-bottom:16px">
       <b>O acerto é em reais.</b> Cada empréstimo de combustível entra pelo valor da nota do dia em que
       foi feito, e esse valor fica congelado — o que o preço fizer depois não muda mais a dívida.
@@ -2196,7 +2211,41 @@ async function pageAcerto(){
     <div class="sub-tabs">
       <button data-v="posto" class="${A.vis==='posto'?'on':''}">Por posto</button>
       <button data-v="mov"   class="${A.vis==='mov'?'on':''}">Movimentações</button>
+      <button data-v="pagas" class="${A.vis==='pagas'?'on':''}">Despesas pagas por outros postos</button>
     </div>
+
+    ${A.vis==='pagas' ? (() => {
+      // despesa do Garra que outro posto pagou = dinheiro que "entrou" no Garra sem passar pelo caixa
+      const pagas = movBase.filter(m=>m.tipo==='dinheiro' && m.direcao==='entrou');
+      const porQuem = {};
+      pagas.forEach(m=>{ const n = nomePosto(m.posto_id); porQuem[n] = (porQuem[n]||0) + Number(m.valor||0); });
+      const lista = Object.entries(porQuem).sort((a,b)=>b[1]-a[1]);
+      return `<div class="msg info" style="margin-bottom:16px">
+          <b>Despesas do Garra que saíram do caixa de outro posto</b> (aluguel, painel de LED, motorista,
+          rateio de contabilidade e Adm…). Cada linha aumenta o que o Garra deve àquele posto.
+          Total em aberto: <b>${money(sum(pagas))}</b>
+          ${lista.length ? ' · ' + lista.map(([n,v])=>`${esc(n)} ${money(v)}`).join(' · ') : ''}
+        </div>
+        <div class="tablecard" style="margin-bottom:16px"><div class="tablescroll"><table>
+          <thead><tr><th>Data</th><th>Pago por</th><th>Despesa</th><th class="num">Valor</th><th>Situação</th><th></th></tr></thead>
+          <tbody id="tbody">${pagas.length ? pagas.map(m=>`
+            <tr data-s="${esc((nomePosto(m.posto_id)+' '+(m.descricao||'')+' '+brDate(m.data)).toLowerCase())}"
+                style="${m.status==='quitado'?'opacity:.5':''}">
+              <td>${brDate(m.data)}</td>
+              <td><b style="font-weight:600">${esc(nomePosto(m.posto_id))}</b></td>
+              <td style="font-size:12.5px">${esc(m.descricao||'—')}${m.documento?`<div style="font-size:11.5px;color:var(--text-muted)">nota ${esc(m.documento)}</div>`:''}${m.observacoes?`<div style="font-size:11.5px;color:var(--text-muted)">${esc(m.observacoes)}</div>`:''}</td>
+              <td class="num"><b>${money(m.valor)}</b></td>
+              <td><span class="pill"><i style="background:${m.status==='quitado'?'var(--good)':'var(--warning)'}"></i>${m.status==='quitado'?'Quitado':'Em aberto'}</span></td>
+              <td>${acts(m.id)}</td>
+            </tr>`).join('') : emptyRow(6,'Nenhuma despesa paga por outro posto.')}</tbody>
+          ${pagas.length?`<tfoot><tr><td colspan="3">Total</td><td class="num"><b>${money(sum(pagas))}</b></td><td colspan="2"></td></tr></tfoot>`:''}
+        </table></div></div>
+        ${toolbar(`<label style="display:flex;gap:7px;align-items:center;font-size:12.5px;color:var(--text-secondary);cursor:pointer">
+          <input type="checkbox" id="cbQuit" ${A.incluirQuitados?'checked':''}> mostrar quitadas</label>
+          ${btnNovo('Lançar despesa paga por outro posto','new')}`)}`;
+    })() : ''}
+
+    <div ${A.vis==='pagas'?'hidden':''}>
 
     ${toolbar(`<div class="sub-tabs" style="margin:0">
         ${[['todos','Todos'],['combustivel','Combustível'],['dinheiro','Dinheiro']].map(([v,t])=>
@@ -2245,7 +2294,8 @@ async function pageAcerto(){
         <td class="num"><b class="${(sum(mov.filter(m=>m.direcao==='entrou'))-sum(mov.filter(m=>m.direcao==='saiu')))>=0?'pos':'neg'}">${money(sum(mov.filter(m=>m.direcao==='entrou'))-sum(mov.filter(m=>m.direcao==='saiu')))}</b></td>
         <td colspan="2"></td></tr></tfoot>`:''}
     `}
-    </table></div></div>`;
+    </table></div></div>
+    </div>`;
 
   bindVizToggles(); wireSearch();
   $$('.sub-tabs button[data-v]').forEach(b=>b.addEventListener('click',()=>{ A.vis = b.dataset.v; render(); }));
@@ -2275,6 +2325,7 @@ async function pageAcerto(){
 }
 
 function formAcerto(r={}){
+  if (!r.id && S.sub.acerto?.vis === 'pagas') r = { tipo:'dinheiro', direcao:'entrou', ...r };   // aba "pagas por outros postos"
   const ehComb = (r.tipo || 'combustivel') === 'combustivel';
   openModal({
     title: r.id ? 'Editar movimentação' : 'Nova movimentação',
