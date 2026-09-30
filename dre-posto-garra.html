@@ -1133,9 +1133,17 @@ function wireSearch(){
   const inp = $('#q'); if (!inp) return;
   inp.addEventListener('input', ()=>{
     const v = inp.value.toLowerCase().trim();
+    let soma = 0, n = 0;
     $$('#tbody tr[data-s]').forEach(tr=>{
-      tr.style.display = !v || tr.dataset.s.includes(v) ? '' : 'none';
+      const mostra = !v || tr.dataset.s.includes(v);
+      tr.style.display = mostra ? '' : 'none';
+      if (mostra && tr.dataset.v != null){ soma += Number(tr.dataset.v) || 0; n++; }
     });
+    // rodape recalcula com o que ficou visivel (so nas tabelas que marcam data-total)
+    const tot = $('[data-total]'); if (tot && $('#tbody tr[data-v]')){
+      tot.textContent = money(soma);
+      const lbl = $('[data-total-label]'); if (lbl) lbl.textContent = v ? `Total do filtro "${inp.value.trim()}" (${n} lançamento${n===1?'':'s'})` : lbl.dataset.totalLabel;
+    }
   });
 }
 const toolbar = (extra='') => `<div class="toolbar">
@@ -1449,7 +1457,7 @@ async function pageDespesas(){
     <div class="tablecard"><div class="tablescroll"><table>
       <thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th>Centro de custo</th><th>Status</th><th class="num">Valor</th><th></th></tr></thead>
       <tbody id="tbody">${rows.length ? rows.map(r=>`
-        <tr data-s="${esc(((r.descricao||'')+' '+(r.fornecedor||'')+' '+nomeCategoria(r.categoria_id)+' '+nomeEmpresa(r.empresa_id)+' '+brDate(r.data)).toLowerCase())}">
+        <tr data-s="${esc(((r.descricao||'')+' '+(r.fornecedor||'')+' '+nomeCategoria(r.categoria_id)+' '+nomeEmpresa(r.empresa_id)+' '+brDate(r.data)).toLowerCase())}" data-v="${r.status==='cancelado'?0:Number(r.valor)||0}">
           <td>${brDate(r.data)}</td>
           <td><b style="font-weight:600">${esc(r.descricao)}</b>
             ${r.fornecedor?`<div style="font-size:11.5px;color:var(--text-muted)">${esc(r.fornecedor)}</div>`:''}
@@ -1459,7 +1467,7 @@ async function pageDespesas(){
           <td><span class="pill"><i style="background:${STATUS_COR[r.status]}"></i>${esc(STATUS_DESP[r.status]||r.status)}</span></td>
           <td class="num"><b>${money(r.valor)}</b></td>
           <td>${acts(r.id)}</td></tr>`).join('') : emptyRow(7)}</tbody>
-      ${rows.length?`<tfoot><tr><td colspan="5">Total do período (exceto cancelados)</td><td class="num">${money(total)}</td><td></td></tr></tfoot>`:''}
+      ${rows.length?`<tfoot><tr><td colspan="5" data-total-label data-total-label="Total do período (exceto cancelados)">Total do período (exceto cancelados)</td><td class="num" data-total>${money(total)}</td><td></td></tr></tfoot>`:''}
     </table></div></div>`;
 
   bindVizToggles(); wireSearch();
@@ -2687,7 +2695,9 @@ function selClasse(r, attr){
     ${r.classe==='despesa' ? `<select ${attr.replace('data-cls','data-cat')} class="clsel ${cls}" style="margin-top:4px">
       <option value="">— categoria —</option>
       ${S.categorias.filter(c=>c.ativo!==false).map(c=>`<option value="${c.id}"${r.categoria_id===c.id?' selected':''}>${esc(c.nome)}</option>`).join('')}
-    </select>` : ''}`;
+    </select>` : ''}
+    ${r.classe && r.classe_origem!=='manual' && !(r.classe==='despesa' && !r.categoria_id)
+      ? `<button class="btn ghost" ${attr.replace('data-cls','data-ok').replace('data-clsg','data-okg')} style="margin-top:4px;padding:3px 9px;font-size:11.5px" title="A sugestão está certa: confirmar e ensinar para as linhas iguais">✓ está certo</button>` : ''}`;
 }
 
 async function pageConciliacao(){
@@ -2852,6 +2862,11 @@ async function pageConciliacao(){
     }
     toast(msg); render();
   };
+  $$('[data-ok],[data-okg]').forEach(b=>b.addEventListener('click', e=>{
+    // confirmar sem mudar: reaproveita o fluxo com os valores que ja estao nos seletores
+    const tr = b.closest('tr'); const sel = tr.querySelector('[data-cls],[data-clsg]');
+    classificar(sel, 'cat');
+  }));
   $$('[data-cls],[data-clsg]').forEach(x=>x.addEventListener('change', e=>classificar(e.target,'cls')));
   $$('[data-cat],[data-catg]').forEach(x=>x.addEventListener('change', e=>classificar(e.target,'cat')));
   $$('[data-grp]').forEach(b=>b.addEventListener('click', ()=>abrirGrupo(b.dataset.grp, C)));
