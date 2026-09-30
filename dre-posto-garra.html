@@ -3117,7 +3117,7 @@ function parseOFX(txt){
   const out = [];
   const blocks = txt.split(/<STMTTRN>/i).slice(1);
   blocks.forEach(b=>{
-    const g = tag => (b.match(new RegExp(`<${tag}>([^<\r\n]*)`,'i'))||[])[1]?.trim();
+    const g = tag => { const m = b.match(new RegExp(`<${tag}>([\\s\\S]*?)(?=<|$)`,'i')); return m ? m[1].replace(/\s+/g,' ').trim() : undefined; };
     const dt = g('DTPOSTED'); if (!dt) return;
     const data = `${dt.slice(0,4)}-${dt.slice(4,6)}-${dt.slice(6,8)}`;
     // alguns bancos (Banco do Brasil, por exemplo) mandam todos os valores
@@ -3131,8 +3131,9 @@ function parseOFX(txt){
                : CRE.test(tt) ? 'credito'
                : 'credito';
     const desc = [g('MEMO'), g('NAME')].filter(Boolean).join(' — ') || 'Lançamento';
+    // FITID e unico por lancamento; CHECKNUM repete (todo boleto vem 16282), entao ele manda na chave
     out.push({ data, descricao: desc.slice(0,200), valor: Math.abs(v), tipo,
-      documento: g('CHECKNUM')||g('FITID')||null, contraparte: g('NAME')||null });
+      documento: g('FITID')||g('CHECKNUM')||null, contraparte: g('NAME')||null });
   });
   return out;
 }
