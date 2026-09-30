@@ -2709,14 +2709,19 @@ async function pageConciliacao(){
   if (C.consolidar === undefined) C.consolidar = true;
   C.aberto = C.aberto || {};
 
-  const { data, error } = await sb.rpc('extrato_conciliacao', {
-    p_conta: C.conta,
-    p_ini: S.from || '1900-01-01',
-    p_fim: S.to   || '2999-12-31',
-    p_consolidar: !!C.consolidar
-  });
-  if (error){ $('#view').innerHTML = `<div class="msg err">${esc(error.message)}</div>`; return; }
-  const rows = data || [];
+  // o servidor devolve no maximo 1000 linhas por chamada: pagina ate acabar
+  const rows = [];
+  for (let off = 0; ; off += 1000){
+    const { data, error } = await sb.rpc('extrato_conciliacao', {
+      p_conta: C.conta,
+      p_ini: S.from || '1900-01-01',
+      p_fim: S.to   || '2999-12-31',
+      p_consolidar: !!C.consolidar
+    }).range(off, off + 999);
+    if (error){ $('#view').innerHTML = `<div class="msg err">${esc(error.message)}</div>`; return; }
+    rows.push(...(data || []));
+    if (!data || data.length < 1000) break;
+  }
 
   // Aplicacao automatica (BB Rende Facil) e dinheiro indo e voltando da propria
   // conta — nao e entrada nem saida de verdade. Fica de fora dos totais e
