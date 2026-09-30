@@ -1781,6 +1781,20 @@ async function pageVendas(){
   const segs = [...groupSum(rows, r=>SEGMENTO[r.segmento]||r.segmento, r=>Number(r.faturamento_bruto)||0)]
     .sort((a,b)=>b[1]-a[1]);
 
+  /* historico completo (todos os meses lancados), combustivel e conveniencia separados */
+  const LIT = n => Number(n||0).toLocaleString('pt-BR',{maximumFractionDigits:0});
+  const RL  = n => 'R$ ' + Number(n||0).toLocaleString('pt-BR',{minimumFractionDigits:3,maximumFractionDigits:3});
+  const hist = [...new Set(todos.map(r=>monthKey(r.competencia)))].sort();
+  const cmb = todos.filter(r=>r.segmento==='combustiveis'), cnv = todos.filter(r=>r.segmento==='conveniencia');
+  const hLit = groupSum(cmb, r=>monthKey(r.competencia), r=>Number(r.volume_litros)||0);
+  const hLbC = groupSum(cmb, r=>monthKey(r.competencia), r=>(Number(r.faturamento_bruto)||0)-(Number(r.custo_mercadoria)||0));
+  const hFatV = groupSum(cnv, r=>monthKey(r.competencia), r=>Number(r.faturamento_bruto)||0);
+  const hLbV  = groupSum(cnv, r=>monthKey(r.competencia), r=>(Number(r.faturamento_bruto)||0)-(Number(r.custo_mercadoria)||0));
+  const hRL = hist.map(k => (hLit.get(k)||0) ? (hLbC.get(k)||0)/(hLit.get(k)||1) : null);
+  const tLit = sum(cmb,'volume_litros'), tLbC = sum(cmb,'faturamento_bruto')-sum(cmb,'custo_mercadoria');
+  const tFatV = sum(cnv,'faturamento_bruto'), tLbV = tFatV - sum(cnv,'custo_mercadoria');
+  const parcial = k => (todos.find(r=>monthKey(r.competencia)===k)?.observacoes||'').includes('parcial');
+
   $('#view').innerHTML = `
     ${roNote()}
     <div class="grid tiles" style="margin-bottom:16px">
@@ -1798,6 +1812,19 @@ async function pageVendas(){
           meses.map(k=>{ const f=mFat.get(k)||0, c=mCmv.get(k)||0;
             return [monthLabelLong(k), money(f), money(c), money(f-c), pct(f-c,f)]; }),
           ['Total', money(tFat), money(tCmv), money(tLB), pct(tLB,tFat)]) })}
+    </div>
+
+    <div class="grid" style="grid-template-columns:1.3fr 1fr;margin-bottom:16px">
+      ${vizCard({ title:'Litros de combustível por mês', sub:'Histórico completo · colunas de volume, linha de margem por litro', canvas:'chVeLit', tall:true,
+        legend: legendHTML([{c:PAL[6],t:'Litros',v:LIT(tLit)+' L'},{c:PAL[2],t:'Margem R$/L',v:tLit?RL(tLbC/tLit):'—'}]),
+        table: miniTable([{t:'Mês'},{t:'Litros',num:1},{t:'Lucro bruto',num:1},{t:'R$/litro',num:1}],
+          hist.map((k,i)=>[monthLabelLong(k)+(parcial(k)?' <span style="color:var(--text-muted);font-size:11px">(parcial)</span>':''), LIT(hLit.get(k)||0)+' L', money(hLbC.get(k)||0), hRL[i]==null?'—':RL(hRL[i])]),
+          ['Total', LIT(tLit)+' L', money(tLbC), tLit?RL(tLbC/tLit):'—']) })}
+      ${vizCard({ title:'Conveniência por mês', sub:'Histórico completo · faturamento da loja e o que sobra', canvas:'chVeCnv', tall:true,
+        legend: legendHTML([{c:PAL[0],t:'Faturamento',v:tFatV},{c:PAL[2],t:'Lucro bruto',v:tLbV}]),
+        table: miniTable([{t:'Mês'},{t:'Faturamento',num:1},{t:'Lucro bruto',num:1},{t:'Margem',num:1}],
+          hist.map(k=>{ const f=hFatV.get(k)||0, l=hLbV.get(k)||0; return [monthLabelLong(k)+(parcial(k)?' <span style="color:var(--text-muted);font-size:11px">(parcial)</span>':''), money(f), money(l), f?pct(l,f):'—']; }),
+          ['Total', money(tFatV), money(tLbV), tFatV?pct(tLbV,tFatV):'—']) })}
     </div>
 
     <div class="grid" style="grid-template-columns:1fr 1fr;margin-bottom:16px">
@@ -1851,6 +1878,31 @@ async function pageVendas(){
     data:{ labels:meses.map(monthLabel), datasets:[
       {...barBase, label:'Faturamento bruto', data:meses.map(k=>mFat.get(k)||0), backgroundColor:PAL[0]},
       {...barBase, label:'Lucro bruto', data:meses.map(k=>(mFat.get(k)||0)-(mCmv.get(k)||0)), backgroundColor:PAL[2]}
+    ]},
+    options:{ plugins:{legend:{display:false}, tooltip:tooltipCfg}, interaction:{mode:'index',intersect:false},
+      scales:{ x:axisCat, y:{...axisMoney, beginAtZero:true} } }
+  });
+
+  S.charts.veLit = new Chart($('#chVeLit'), {
+    type:'bar',
+    data:{ labels:hist.map(monthLabel), datasets:[
+      {...barBase, type:'bar', label:'Litros', data:hist.map(k=>hLit.get(k)||0), backgroundColor:hist.map(k=>parcial(k)?'rgba(120,120,140,.45)':PAL[6]), yAxisID:'y' },
+      { type:'line', label:'Margem R$/L', data:hRL, borderColor:PAL[2], backgroundColor:PAL[2], borderWidth:2,
+        pointRadius:3, pointHoverRadius:5, tension:.3, spanGaps:true, yAxisID:'y2' }
+    ]},
+    options:{ plugins:{legend:{display:false}, tooltip:{...tooltipCfg, callbacks:{label:c=> c.datasetIndex===0
+        ? ` ${LIT(c.parsed.y)} litros` : ` margem ${RL(c.parsed.y)}/L`}}},
+      interaction:{mode:'index',intersect:false},
+      scales:{ x:axisCat,
+        y:{...axisCat, beginAtZero:true, position:'left', ticks:{...(axisCat.ticks||{}), callback:v=>(v/1000).toLocaleString('pt-BR')+' mil'}},
+        y2:{ position:'right', beginAtZero:true, grid:{drawOnChartArea:false}, ticks:{color:INK.muted, font:{size:11}, callback:v=>'R$ '+v.toFixed(2)} } } }
+  });
+
+  S.charts.veCnv = new Chart($('#chVeCnv'), {
+    type:'bar',
+    data:{ labels:hist.map(monthLabel), datasets:[
+      {...barBase, label:'Faturamento', data:hist.map(k=>hFatV.get(k)||0), backgroundColor:PAL[0]},
+      {...barBase, label:'Lucro bruto', data:hist.map(k=>hLbV.get(k)||0), backgroundColor:PAL[2]}
     ]},
     options:{ plugins:{legend:{display:false}, tooltip:tooltipCfg}, interaction:{mode:'index',intersect:false},
       scales:{ x:axisCat, y:{...axisMoney, beginAtZero:true} } }
