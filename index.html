@@ -321,6 +321,11 @@ tfoot td{padding:12px 14px;background:var(--surface-2);font-weight:700;border-to
   .tile .val{font-size:22px}
 }
 @media print{aside,header.top .filters,.toolbar,.rowacts{display:none!important}}
+/* classificacao da conciliacao */
+.clsel{display:block;width:100%;max-width:260px;font:inherit;font-size:12.5px;padding:4px 6px;border-radius:7px;background:var(--surface);color:var(--text);border:1px solid var(--border)}
+.clsel.cls-vazio{border-color:var(--critical);background:color-mix(in srgb,var(--critical) 6%,var(--surface))}
+.clsel.cls-auto{border-style:dashed;border-color:var(--warning)}
+.clsel.cls-man{border-color:var(--good)}
 </style>
 </head>
 <body>
@@ -397,7 +402,7 @@ tfoot td{padding:12px 14px;background:var(--surface-2);font-weight:700;border-to
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.58.0/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script src="app.js?v=8659ed26"></script>
+<script src="app.js?v=859cfb63"></script>
 <script>
 if ('serviceWorker' in navigator) {
   let recarregando = false;

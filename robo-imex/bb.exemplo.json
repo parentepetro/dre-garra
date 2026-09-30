@@ -1,0 +1,14 @@
+{
+  "_leia": "Copie para bb.json e preencha. O bb.json e o certificado NAO vao para o GitHub. Os valores sao os mesmos que estao cadastrados no FinBank para o Posto Parente Garra (Credenciais > Banco do Brasil).",
+
+  "clientId":         "SEU_CLIENT_ID_DO_BB",
+  "clientSecret":     "SEU_CLIENT_SECRET_DO_BB",
+  "gwDevAppKey":      "SUA_GW_DEV_APP_KEY",
+
+  "certificado":      "garra.pfx",
+  "certificadoSenha": "SENHA_DO_PFX",
+
+  "agencia":          "4249-8",
+  "conta":            "20705-5",
+  "ambiente":         "producao"
+}

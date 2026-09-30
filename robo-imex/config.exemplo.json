@@ -10,5 +10,11 @@
   "imex_senha":    "SUA_SENHA_DO_IMEX",
 
   "painel_url":    "https://xqranvotievwkoohsznq.supabase.co/functions/v1/ingest-erp",
-  "painel_token":  "325g53Oiq1BnueRH6eDUgq6EIbk40bsVq7s6hHsp4uo"
+  "painel_token":  "COLE_AQUI_O_TOKEN_DO_PAINEL",
+
+  "_finbank":           "Extrato do BB via FinBank. Cole o valor do cookie app_session_id do navegador logado no FinBank (vale 1 ano).",
+  "finbank_url":        "https://finbank.hubparente.com.br",
+  "finbank_cookie":     "COLE_AQUI_O_COOKIE_app_session_id",
+  "finbank_company_id": 70001,
+  "finbank_dias":       40
 }

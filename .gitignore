@@ -1,3 +1,7 @@
 .DS_Store
 *.log
 robo-imex/config.json
+robo-imex/bb.json
+robo-imex/*.pfx
+robo-imex/*.p12
+robo-imex/*.txt

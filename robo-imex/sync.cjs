@@ -262,12 +262,19 @@ async function enviar(tipo, rows) {
 
     // O financiamento de veiculo e conta patrimonial (2.2.01.01): nao entra na
     // DRE do Imex, mas voce pediu para ele aparecer. Esse vem do contas a pagar.
+    // Alem disso, TODOS os titulos vao para a conciliacao (tabela erp_pagamentos),
+    // titulo a titulo, para casar com o extrato do banco. Isso nao soma na DRE.
+    const pagamentos = [];
     for (const m of lista) {
       const d = await gql(Q_CONTAS_PAGAR, { filial:[FILIAL], tipoConta:0, vinculado:0,
         dataInicial:m.ini, dataFinal:m.fim, usarPeriodo:true, tipoData:0, page:1, offset:20000 });
       (d.getContasPagar || []).forEach(x => {
         const [cod, nome] = mapa[x.idPlanoDeContas] || ['?', '?'];
-        if (!String(cod).startsWith('2.')) return;      // so as patrimoniais
+        pagamentos.push({ erp_id:x.idContasPagar, filial:FILIAL, data:x.dtaContaBr,
+          vencimento:x.dtaVctoBr || null, data_pagamento:x.dtaPagtoBr || null,
+          conta_codigo:cod, conta_nome:nome, fornecedor:x.nomeEntidade || '',
+          historico:x.historico || '', documento:x.documento ?? null, valor:Number(x.valor) });
+        if (!String(cod).startsWith('2.')) return;      // na DRE so as patrimoniais
         despesas.push({ erp_id:x.idContasPagar, filial:FILIAL, data:x.dtaContaBr,
           conta_codigo:cod, conta_nome:nome, fornecedor:x.nomeEntidade || '',
           historico:x.historico || '', valor:Number(x.valor) });
@@ -277,6 +284,13 @@ async function enviar(tipo, rows) {
     const rd = await enviar('despesas', despesas);
     log(`despesas: ${despesas.length} enviada(s)` +
         (rd.gravados !== undefined ? ` · ${rd.gravados} gravada(s) no DRE · ${rd.ignorados||0} fora do DRE (compra de combustível, conta patrimonial)` : ''));
+
+    let gravPag = 0, casados = 0;
+    for (let i = 0; i < pagamentos.length; i += 500) {
+      const r = await enviar('pagamentos', pagamentos.slice(i, i + 500));
+      gravPag += r.gravados || 0; casados += r.casados || 0;
+    }
+    log(`contas a pagar p/ conciliacao: ${pagamentos.length} titulo(s)` + (TESTE ? '' : ` · ${gravPag} gravado(s) · ${casados} casado(s) com o extrato`));
 
     // ---- contas a receber (todos os titulos, nao so os do periodo:
     //      titulo antigo que continua em aberto precisa aparecer na cobranca)
@@ -311,6 +325,21 @@ async function enviar(tipo, rows) {
       gravRec += r.gravados || 0;
     }
     log(`a receber: ${titulos.length} enviado(s)${gravRec ? ` · ${gravRec} gravado(s)` : ''}`);
+
+    // ---- extrato bancario ----
+    // 1) via FinBank (finbank.hubparente.com.br), com a sessao do config.json — preferido
+    // 2) ou direto no BB, se houver bb.json ao lado
+    try {
+      const fb = require('./extrato-finbank.cjs');
+      const bbx = require('./extrato-bb.cjs');
+      if (fb.existeConfig()) {
+        const { resumo } = await fb.sincronizar({ dias: CFG.finbank_dias || 40, teste: TESTE });
+        log('extrato (FinBank):', resumo);
+      } else if (bbx.existeConfig()) {
+        const { resumo } = await bbx.sincronizar({ dias: CFG.bb_dias || 40, teste: TESTE });
+        log('extrato (BB direto):', resumo);
+      }
+    } catch (e) { log(`extrato bancario: falhou (${e.message.slice(0, 120)}) — segue sem ele`); }
 
     log(TESTE ? 'MODO TESTE — nada foi gravado.' : 'sincronização concluída.');
   } catch (e) {

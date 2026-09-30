@@ -321,6 +321,11 @@ tfoot td{padding:12px 14px;background:var(--surface-2);font-weight:700;border-to
   .tile .val{font-size:22px}
 }
 @media print{aside,header.top .filters,.toolbar,.rowacts{display:none!important}}
+/* classificacao da conciliacao */
+.clsel{display:block;width:100%;max-width:260px;font:inherit;font-size:12.5px;padding:4px 6px;border-radius:7px;background:var(--surface);color:var(--text);border:1px solid var(--border)}
+.clsel.cls-vazio{border-color:var(--critical);background:color-mix(in srgb,var(--critical) 6%,var(--surface))}
+.clsel.cls-auto{border-style:dashed;border-color:var(--warning)}
+.clsel.cls-man{border-color:var(--good)}
 </style>
 </head>
 <body>
@@ -2590,6 +2595,49 @@ const NAT_COR = {
   aplicacao:PAL[8]||PAL[3], outro:PAL[4]
 };
 
+/* Classificacao de cada linha do extrato: o que ela e para a DRE.
+   O robo preenche o que consegue (auto); o que voce escolhe vira memoria e
+   se aplica sozinho as proximas linhas com o mesmo historico. */
+const CLASSES = [
+  { g:'Entradas', itens:[
+    ['receita_venda',   'Venda do posto (pista/loja)'],
+    ['receita_prazo',   'Recebimento de cliente a prazo / frota'],
+    ['gestao_anterior', 'Da gestão anterior (não é do Garra)'],
+    ['aporte',          'Aporte de sócio'],
+    ['grupo_entrada',   'Recebido de posto do grupo (acerto)'],
+  ]},
+  { g:'Saídas', itens:[
+    ['despesa',                 'Despesa (escolha a categoria)'],
+    ['investimento',            'Investimento (posto, caminhão, obras…)'],
+    ['retirada',                'Retirada de sócio'],
+    ['grupo_saida',             'Repasse a posto do grupo (acerto)'],
+    ['repasse_gestao_anterior', 'Repasse à gestão anterior'],
+  ]},
+  { g:'Neutro', itens:[
+    ['conta_propria', 'Entre contas do Garra (Itaú ↔ BB)'],
+    ['aplicacao',     'Aplicação financeira'],
+    ['tarifa',        'Tarifa bancária'],
+    ['outro',         'Outro'],
+  ]},
+];
+const CLASSE_NOME = Object.fromEntries(CLASSES.flatMap(g=>g.itens));
+const CLASSE_ENTRADA = ['receita_venda','receita_prazo','gestao_anterior','aporte','grupo_entrada'];
+const CLASSE_SAIDA   = ['despesa','investimento','retirada','grupo_saida','repasse_gestao_anterior'];
+function selClasse(r, attr){
+  const permitidas = r.tipo==='credito' ? [...CLASSE_ENTRADA, 'conta_propria','aplicacao','outro']
+                                        : [...CLASSE_SAIDA,   'conta_propria','aplicacao','tarifa','outro'];
+  const grupos = CLASSES.map(g=>({ g:g.g, itens:g.itens.filter(([v])=>permitidas.includes(v)) })).filter(g=>g.itens.length);
+  const cls = r.classe ? (r.classe_origem==='manual' ? 'cls-man' : 'cls-auto') : 'cls-vazio';
+  return `<select ${attr} class="clsel ${cls}" title="${r.classe_origem==='manual'?'Classificado por você':r.classe_origem==='memoria'?'Aprendido de uma linha igual':r.classe?'Sugerido automaticamente':'Ainda não classificado'}">
+      <option value="">— a classificar —</option>
+      ${grupos.map(g=>`<optgroup label="${g.g}">${g.itens.map(([v,t])=>`<option value="${v}"${r.classe===v?' selected':''}>${esc(t)}</option>`).join('')}</optgroup>`).join('')}
+    </select>
+    ${r.classe==='despesa' ? `<select ${attr.replace('data-cls','data-cat')} class="clsel ${cls}" style="margin-top:4px">
+      <option value="">— categoria —</option>
+      ${S.categorias.filter(c=>c.ativo!==false).map(c=>`<option value="${c.id}"${r.categoria_id===c.id?' selected':''}>${esc(c.nome)}</option>`).join('')}
+    </select>` : ''}`;
+}
+
 async function pageConciliacao(){
   if (!S.contas.length){
     $('#view').innerHTML = `${roNote()}
@@ -2645,7 +2693,7 @@ async function pageConciliacao(){
       ${tile('Entradas no período', money(tEnt), `${entradas.reduce((a,r)=>a+(r.qtde||1),0)} lançamento(s)`, PAL[2])}
       ${tile('Saídas no período', money(tSai), `${saidas.length} lançamento(s)`, PAL[1])}
       ${tile('Resultado do caixa', money(tEnt-tSai), '', null, (tEnt-tSai)>=0?'pos':'neg')}
-      ${tile('Conciliado', rows.length?`${conc}/${rows.length}`:'—', rows.length?pct(conc,rows.length)+' das linhas':'', 'var(--good)')}
+      ${tile('A classificar', String(rows.filter(r=>!r.classe).length), rows.length?`de ${rows.length} linha(s) · ${rows.filter(r=>r.classe_origem==='manual').length} confirmadas por você`:'', rows.some(r=>!r.classe)?'var(--warning)':'var(--good)')}
     </div>
 
     <div class="card" style="margin-bottom:16px"><div class="card-b" style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
@@ -2694,10 +2742,22 @@ async function pageConciliacao(){
           porNat.map(x=>[NATUREZA[x.n]||x.n, String(x.q), money(x.v)])) })}
     </div>`:''}
 
-    ${toolbar(S.admin?`<button class="btn ghost" data-act="auto">${svg(I.link,15)} Sugerir vínculos</button>`:'')}
+    ${toolbar(`<div class="sub-tabs" style="margin:0">
+        ${[['todas','Todas'],['pend','A classificar'],['auto','Sugeridas'],['man','Confirmadas']].map(([v,t])=>
+          `<button data-fc="${v}" class="${(C.filtro||'todas')===v?'on':''}">${t}</button>`).join('')}
+      </div>` + (S.admin?`<button class="btn ghost" data-act="auto">${svg(I.link,15)} Sugerir vínculos</button>`:''))}
+    <div class="msg info" style="margin-bottom:12px;font-size:12.5px">
+      Escolha o que cada linha é para a DRE. O que você escolher vira regra: as próximas linhas com o mesmo
+      histórico já vêm preenchidas. <span style="border-bottom:2px dotted var(--warning)">Pontilhado</span> = sugestão automática,
+      <span style="border-bottom:2px solid var(--good)">sólido</span> = confirmado por você.
+    </div>
     <div class="tablecard"><div class="tablescroll"><table>
-      <thead><tr><th>Data</th><th>Histórico</th><th>Natureza</th><th class="num">Valor</th><th>Situação</th><th></th></tr></thead>
-      <tbody id="tbody">${rows.length ? rows.map(r=>linhaConc(r,C)).join('') : emptyRow(6,'Nenhum extrato importado no período.')}</tbody>
+      <thead><tr><th>Data</th><th>Histórico</th><th style="min-width:230px">Classificação</th><th class="num">Valor</th><th>DRE</th><th></th></tr></thead>
+      <tbody id="tbody">${(() => {
+        const f = C.filtro||'todas';
+        const vis = rows.filter(r => f==='todas' ? true : f==='pend' ? !r.classe : f==='man' ? r.classe_origem==='manual' : (r.classe && r.classe_origem!=='manual'));
+        return vis.length ? vis.map(r=>linhaConc(r,C)).join('') : emptyRow(6, rows.length ? 'Nenhuma linha neste filtro.' : 'Nenhum extrato importado no período.');
+      })()}</tbody>
     </table></div></div>`;
 
   bindVizToggles(); wireSearch();
@@ -2706,6 +2766,37 @@ async function pageConciliacao(){
   $('#cbCons')?.addEventListener('change', e=>{ C.consolidar = e.target.checked; render(); });
   $$('[data-act="imp"]').forEach(b=>b.addEventListener('click', importExtrato));
   $$('[data-act="auto"]').forEach(b=>b.addEventListener('click', ()=>sugerirVinculos(C.conta)));
+  $$('[data-fc]').forEach(b=>b.addEventListener('click', ()=>{ C.filtro = b.dataset.fc; render(); }));
+  // classificacao: linha individual -> rpc (grava memoria e propaga); grupo do dia -> todas as linhas do grupo
+  const classificar = async (el, campo) => {
+    const tr = el.closest('tr');
+    const clsSel = tr.querySelector('[data-cls]'), catSel = tr.querySelector('[data-cat]');
+    const classe = clsSel?.value || null;
+    const categoria = classe==='despesa' ? (catSel?.value || null) : null;
+    if (campo==='cls' && classe==='despesa' && !catSel){ // precisa escolher a categoria: redesenha so a celula
+      const r = { tipo: el.dataset.tipo, classe, categoria_id:null, classe_origem:'manual' };
+      el.parentElement.innerHTML = selClasse(r, el.dataset.cls ? `data-cls="${el.dataset.cls}" data-tipo="${r.tipo}"` : `data-clsg="${el.dataset.clsg}" data-tipo="${r.tipo}"`);
+      el.parentElement.querySelectorAll('select').forEach(x=>x.addEventListener('change', ev=>classificar(ev.target, ev.target.dataset.cls||ev.target.dataset.clsg ? 'cls' : 'cat')));
+      el.parentElement.querySelector('[data-cat]')?.focus();
+      return;
+    }
+    let msg;
+    if (el.dataset.cls || el.dataset.cat){
+      const id = el.dataset.cls || el.dataset.cat;
+      const { data:n, error } = await sb.rpc('extrato_classificar', { p_id:id, p_classe:classe, p_categoria:categoria, p_propagar:true });
+      if (error) return toast(error.message, true);
+      msg = classe ? `Classificado${n?` · aplicado a ${n} linha(s) com o mesmo histórico`:''}.` : 'Classificação removida.';
+    } else {
+      const [d, nat] = (el.dataset.clsg || el.dataset.catg).split('|');
+      const { error } = await sb.from('extratos').update({ classe, categoria_id:categoria, classe_origem: classe?'manual':null })
+        .eq('conta_id', C.conta).eq('data', d).eq('natureza', nat).eq('agrupavel', true);
+      if (error) return toast(error.message, true);
+      msg = 'Dia inteiro classificado.';
+    }
+    toast(msg); render();
+  };
+  $$('[data-cls],[data-clsg]').forEach(x=>x.addEventListener('change', e=>classificar(e.target,'cls')));
+  $$('[data-cat],[data-catg]').forEach(x=>x.addEventListener('change', e=>classificar(e.target,'cat')));
   $$('[data-grp]').forEach(b=>b.addEventListener('click', ()=>abrirGrupo(b.dataset.grp, C)));
   $$('[data-det]').forEach(b=>b.addEventListener('click', ()=>detalheLancamento(b.dataset.det)));
   $$('[data-del]').forEach(b=>b.addEventListener('click', ()=>remove('extratos', b.dataset.del, 'lançamento')));
@@ -2759,9 +2850,10 @@ function linhaConc(r, C){
           </button>
           <div style="font-size:11.5px;color:var(--text-muted)">${r.qtde.toLocaleString('pt-BR')} lançamentos agrupados</div>
         </td>
-        <td>${nat}</td>
+        <td>${S.admin ? selClasse(r, `data-clsg="${r.data}|${r.natureza}" data-tipo="${r.tipo}"`) : `<span class="pill">${esc(CLASSE_NOME[r.classe]||'—')}</span>`}
+          <div style="font-size:11px;color:var(--text-muted);margin-top:3px">${nat}</div></td>
         <td class="num"><b class="pos">+ ${money(r.valor)}</b></td>
-        <td><span class="pill"><i style="background:${r.conciliado?'var(--good)':'var(--warning)'}"></i>${r.conciliado?'Conciliado':'Pendente'}</span></td>
+        <td><span class="pill" title="Venda: bate com o faturamento do Imex pelo total do mês"><i style="background:${r.classe?'var(--good)':'var(--warning)'}"></i>${r.classe?'ok':'—'}</span></td>
         <td>${S.admin?`<div class="rowacts">
           <button class="iconbtn" data-togg="g|${r.data}|${r.natureza}" data-v="${r.conciliado?1:0}" title="Conciliar o dia inteiro">${svg(I.link,15)}</button>
         </div>`:''}</td>
@@ -2777,9 +2869,15 @@ function linhaConc(r, C){
   return `<tr data-s="${busca}">
     <td>${brDate(r.data)}</td>
     <td><button class="linkbtn" data-det="${id}" style="background:none;border:0;padding:0;cursor:pointer;color:inherit;font:inherit;text-align:left;text-decoration:underline;text-decoration-color:var(--grid);text-underline-offset:3px">${esc(r.descricao)}</button></td>
-    <td>${nat}</td>
+    <td>${S.admin ? selClasse(r, `data-cls="${id}" data-tipo="${r.tipo}"`) : `<span class="pill">${esc(CLASSE_NOME[r.classe]||'—')}</span>`}
+      ${r.classe==='despesa' && r.categoria_id && !S.admin ? `<div style="font-size:11.5px;color:var(--text-muted)">${esc(nomeCategoria(r.categoria_id))}</div>`:''}</td>
     <td class="num"><b class="${r.tipo==='credito'?'pos':''}">${r.tipo==='credito'?'+':'−'} ${money(r.valor)}</b></td>
-    <td><span class="pill"><i style="background:${r.conciliado?'var(--good)':'var(--warning)'}"></i>${r.conciliado?'Conciliado':'Pendente'}</span></td>
+    <td>${r.erp_pagamento_id ? `<span class="pill" title="Casou com um título do contas a pagar do Imex (mesmo valor, até 10 dias)"><i style="background:var(--good)"></i>Imex ✓</span>${r.fornecedor?`<div style="font-size:11px;color:var(--text-muted);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(r.fornecedor)}">${esc(r.fornecedor)}</div>`:''}`
+        : r.despesa_id ? `<span class="pill" title="Casou com um lançamento da DRE — clique no histórico para ver"><i style="background:var(--good)"></i>DRE ✓</span>`
+        : r.aporte_id ? `<span class="pill"><i style="background:var(--good)"></i>Aporte ✓</span>`
+        : r.retirada_id ? `<span class="pill"><i style="background:var(--good)"></i>Invest. ✓</span>`
+        : r.classe ? `<span class="pill"><i style="background:${r.classe_origem==='manual'?'var(--good)':'var(--warning)'}"></i>${r.classe_origem==='manual'?'ok':'sugerido'}</span>`
+        : `<span class="pill"><i style="background:var(--critical)"></i>pendente</span>`}</td>
     <td>${S.admin?`<div class="rowacts">
       <button class="iconbtn" data-tog="${id}" data-v="${r.conciliado?1:0}" title="${r.conciliado?'Marcar como pendente':'Marcar como conciliado'}">${svg(I.link,15)}</button>
       <button class="iconbtn del" data-del="${id}" title="Excluir">${svg(I.trash,15)}</button></div>`:''}</td>
@@ -2995,12 +3093,48 @@ async function lerExtrato(file, m){
   // "Saldo do dia" / "Saldo anterior" nao sao movimentacao, sao o saldo da conta.
   // Se entrarem como lancamento, o total do extrato fica duplicado.
   const SALDO = /^\s*s\.?\s*(a\s*l\s*d\s*o|aldo)\b|^\s*saldo\s+(do\s+dia|anterior|em|atual|bloq)/i;
-  const itens = (/<STMTTRN>/i.test(txt) ? parseOFX(txt) : parseCSVExtrato(txt))
+  let itens = (/<STMTTRN>/i.test(txt) ? parseOFX(txt) : parseCSVExtrato(txt))
     .filter(i => !SALDO.test(i.descricao||''));
   if (!itens.length){ st.innerHTML = `<div class="msg err">Não encontrei lançamentos neste arquivo. Verifique se é um OFX ou um CSV com data, histórico e valor.</div>`; return; }
 
-  const payload = itens.map(i=>({ ...i, conta_id, criado_por:S.user.id,
-    hash: `${conta_id||'x'}|${i.data}|${i.valor}|${i.tipo}|${(i.documento||i.descricao||'').slice(0,60)}` }));
+  // O robo (FinBank/BB) ja cobre desta data em diante: o que o arquivo trouxer
+  // desse periodo seria duplicado com outra chave, entao fica de fora.
+  let cortados = 0;
+  if (conta_id){
+    const { data: api } = await sb.from('extratos').select('data').eq('conta_id', conta_id)
+      .like('hash', 'api|%').order('data').limit(1);
+    const desde = api?.[0]?.data;
+    if (desde){ const n = itens.length; itens = itens.filter(i => i.data < desde); cortados = n - itens.length; }
+  }
+
+  // Pix recebido por QR Code (cliente na pista/loja): uma linha por dia, igual ao robo.
+  // O dia e o da venda, que vem no texto ("26/09 10:35 ..."), nao o da contabilizacao.
+  const ehQr = i => i.tipo==='credito' && /qr\s*code/i.test(i.descricao||'');
+  const grupos = {};
+  const soltos = [];
+  itens.forEach(i => {
+    if (!ehQr(i)) { soltos.push(i); return; }
+    let dia = i.data;
+    const mm = String(i.descricao||'').match(/(\d{2})\/(\d{2}) \d{2}:\d{2}/);
+    if (mm){ let ano = +i.data.slice(0,4); if (+mm[2] > +i.data.slice(5,7)) ano--; dia = `${ano}-${mm[2]}-${mm[1]}`; }
+    const g = grupos[dia] = grupos[dia] || { n:0, total:0 };
+    g.n++; g.total += Number(i.valor);
+  });
+  const agrupados = Object.entries(grupos).map(([dia,g]) => ({
+    data: dia, descricao: `Clientes (pista/loja) — Pix QR Code recebidos — ${g.n} pagamento(s)`,
+    valor: +g.total.toFixed(2), tipo: 'credito', documento: `pixqr-${dia}`, contraparte: 'Clientes (pista/loja)',
+    conta_id, criado_por: S.user.id, hash: `api|${conta_id||'x'}|pixqr-${dia}` }));
+  const nQr = itens.length - soltos.length;
+
+  const payload = [
+    ...soltos.map(i=>({ ...i, conta_id, criado_por:S.user.id,
+      hash: `${conta_id||'x'}|${i.data}|${i.valor}|${i.tipo}|${(i.documento||i.descricao||'').slice(0,60)}` })),
+    ...agrupados,
+  ];
+  if (!payload.length){
+    st.innerHTML = `<div class="msg info">Tudo o que está neste arquivo já foi trazido pelo robô (a partir de ${brDate(itens[0]?.data||'')}). Nada a importar.</div>`;
+    return;
+  }
 
   // envia em blocos para aguentar extrato grande sem estourar a requisicao
   const LOTE = 500;
@@ -3015,7 +3149,9 @@ async function lerExtrato(file, m){
     enviados += Math.min(LOTE, payload.length-i);
   }
   if (S.sub.conc){ S.sub.conc.aberto = {}; S.sub.conc.det = {}; }
-  toast(`${enviados.toLocaleString('pt-BR')} lançamento(s) processado(s). Duplicados foram ignorados.`);
+  toast(`${enviados.toLocaleString('pt-BR')} lançamento(s) processado(s)` +
+    (nQr ? ` · ${nQr.toLocaleString('pt-BR')} Pix QR Code viraram ${agrupados.length} total(is) diário(s)` : '') +
+    (cortados ? ` · ${cortados.toLocaleString('pt-BR')} já cobertos pelo robô ficaram de fora` : '') + '.');
   closeModal(); render();
 }
 
