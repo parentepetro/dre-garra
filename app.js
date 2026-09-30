@@ -2278,21 +2278,52 @@ const CLASSES = [
 const CLASSE_NOME = Object.fromEntries(CLASSES.flatMap(g=>g.itens));
 const CLASSE_ENTRADA = ['receita_venda','receita_prazo','gestao_anterior','aporte','grupo_entrada'];
 const CLASSE_SAIDA   = ['despesa','investimento','retirada','grupo_saida','repasse_gestao_anterior'];
-function selClasse(r, attr){
-  const permitidas = r.tipo==='credito' ? [...CLASSE_ENTRADA, 'conta_propria','aplicacao','outro']
-                                        : [...CLASSE_SAIDA,   'conta_propria','aplicacao','tarifa','outro'];
-  const grupos = CLASSES.map(g=>({ g:g.g, itens:g.itens.filter(([v])=>permitidas.includes(v)) })).filter(g=>g.itens.length);
+/* ---- classes: as fixas + as que voce cria (escolhendo "Outro" e dando um nome) ---- */
+const nomeClasse = k => CLASSE_NOME[k] || (S.classesX||[]).find(c=>c.chave===k)?.nome || k || '—';
+const chaveLinha = r => r.agrupado ? `g|${r.data}|${r.natureza}` : r.linha_id.slice(2);
+// a linha como ela fica com as alteracoes que ainda nao foram salvas
+function efetiva(r, C){
+  const p = C.pend?.[chaveLinha(r)];
+  return p ? { ...r, classe:p.classe, categoria_id:p.categoria, classe_origem:p.classe?'manual':null, _mudou:true } : r;
+}
+async function carregarClassesX(){
+  const { data } = await sb.from('extrato_classes').select('*').order('nome');
+  S.classesX = data || [];
+}
+function gruposClasse(tipo){
+  const permitidas = tipo==='credito' ? [...CLASSE_ENTRADA, 'conta_propria','aplicacao','outro']
+                                      : [...CLASSE_SAIDA,   'conta_propria','aplicacao','tarifa','outro'];
+  const grupos = CLASSES.map(g=>({ g:g.g, itens:g.itens.filter(([v])=>permitidas.includes(v))
+      .map(([v,t])=>v==='outro' ? [v,'Outro… (dar um nome)'] : [v,t]) })).filter(g=>g.itens.length);
+  const extras = (S.classesX||[]).filter(c=>c.aplica_em==='ambos' || (c.aplica_em==='credito')===(tipo==='credito'));
+  if (extras.length) grupos.push({ g:'Criadas por você', itens: extras.map(c=>[c.chave, c.nome]) });
+  return grupos;
+}
+// celula "Classificacao": so texto quando nao esta editando; com seletores no modo Editar
+function celulaClasse(r, key, C){
   const cls = r.classe ? (r.classe_origem==='manual' ? 'cls-man' : 'cls-auto') : 'cls-vazio';
-  return `<select ${attr} class="clsel ${cls}" title="${r.classe_origem==='manual'?'Classificado por você':r.classe_origem==='memoria'?'Aprendido de uma linha igual':r.classe?'Sugerido automaticamente':'Ainda não classificado'}">
-      <option value="">— a classificar —</option>
-      ${grupos.map(g=>`<optgroup label="${g.g}">${g.itens.map(([v,t])=>`<option value="${v}"${r.classe===v?' selected':''}>${esc(t)}</option>`).join('')}</optgroup>`).join('')}
+  if (!S.admin || !C.edit){
+    if (!r.classe) return `<span class="pill"><i style="background:var(--critical)"></i>a classificar</span>`;
+    const cor = r.classe_origem==='manual' ? 'var(--good)' : 'var(--warning)';
+    const est = r.classe_origem==='manual' ? 'solid' : 'dotted';
+    return `<span style="border-bottom:2px ${est} ${cor};padding-bottom:1px" title="${r.classe_origem==='manual'?'Confirmado por você':'Sugestão automática'}">${esc(nomeClasse(r.classe))}</span>` +
+      (r.classe==='despesa' && r.categoria_id ? `<div style="font-size:11.5px;color:var(--text-muted)">${esc(nomeCategoria(r.categoria_id))}</div>` : '');
+  }
+  const k = esc(key);
+  const marca = r._mudou ? 'outline:2px solid var(--s1);outline-offset:1px;' : '';
+  const grupos = gruposClasse(r.tipo);
+  const fora = r.classe && !grupos.some(g=>g.itens.some(([v])=>v===r.classe))
+    ? `<option value="${esc(r.classe)}" selected>${esc(nomeClasse(r.classe))}</option>` : '';
+  return `<select data-k="${k}" data-f="cls" class="clsel ${cls}" style="${marca}">
+      <option value="">— a classificar —</option>${fora}
+      ${grupos.map(g=>`<optgroup label="${g.g}">${g.itens.map(([v,t])=>`<option value="${esc(v)}"${r.classe===v?' selected':''}>${esc(t)}</option>`).join('')}</optgroup>`).join('')}
     </select>
-    ${r.classe==='despesa' ? `<select ${attr.replace('data-cls','data-cat')} class="clsel ${cls}" style="margin-top:4px">
+    ${r.classe==='despesa' ? `<select data-k="${k}" data-f="cat" class="clsel ${cls}" style="margin-top:4px;${marca}">
       <option value="">— categoria —</option>
       ${S.categorias.filter(c=>c.ativo!==false).map(c=>`<option value="${c.id}"${r.categoria_id===c.id?' selected':''}>${esc(c.nome)}</option>`).join('')}
     </select>` : ''}
-    ${r.classe && r.classe_origem!=='manual' && !(r.classe==='despesa' && !r.categoria_id)
-      ? `<button class="btn ghost" ${attr.replace('data-cls','data-ok').replace('data-clsg','data-okg')} style="margin-top:4px;padding:3px 9px;font-size:11.5px" title="A sugestão está certa: confirmar e ensinar para as linhas iguais">✓ está certo</button>` : ''}`;
+    ${r.classe && !r._mudou && r.classe_origem!=='manual' && !(r.classe==='despesa' && !r.categoria_id)
+      ? `<button class="btn ghost" data-k="${k}" data-f="ok" style="margin-top:4px;padding:3px 9px;font-size:11.5px" title="A sugestão está certa: confirmar e ensinar para as linhas iguais">✓ está certo</button>` : ''}`;
 }
 
 async function pageConciliacao(){
@@ -2313,6 +2344,8 @@ async function pageConciliacao(){
   if (!C.conta || !S.contas.some(c=>c.id===C.conta)) C.conta = S.contas[0].id;
   if (C.consolidar === undefined) C.consolidar = true;
   C.aberto = C.aberto || {};
+  C.pend = C.pend || {}; C.tipo = C.tipo || 'todas'; C.edit = !!C.edit && S.admin;
+  await carregarClassesX();
 
   // o servidor devolve no maximo 1000 linhas por chamada: pagina ate acabar
   const rows = [];
@@ -2404,81 +2437,186 @@ async function pageConciliacao(){
           porNat.map(x=>[NATUREZA[x.n]||x.n, String(x.q), money(x.v)])) })}
     </div>`:''}
 
-    ${toolbar(`<div class="sub-tabs" style="margin:0">
-        ${[['todas','Todas'],['pend','A classificar'],['auto','Sugeridas'],['man','Confirmadas']].map(([v,t])=>
-          `<button data-fc="${v}" class="${(C.filtro||'todas')===v?'on':''}">${t}</button>`).join('')}
-      </div>` + (S.admin?`<button class="btn ghost" data-act="auto">${svg(I.link,15)} Sugerir vínculos</button>`:''))}
+    ${toolbar(`<div id="barraConc" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"></div>`)}
     <div class="msg info" style="margin-bottom:12px;font-size:12.5px">
-      Escolha o que cada linha é para a DRE. O que você escolher vira regra: as próximas linhas com o mesmo
-      histórico já vêm preenchidas. <span style="border-bottom:2px dotted var(--warning)">Pontilhado</span> = sugestão automática,
+      Esta aba é só o <b>registro do extrato</b>: classificar aqui não altera a DRE.
+      Clique em <b>Editar classificação</b>, faça todas as mudanças e depois em <b>Salvar</b> (grava tudo de uma vez).
+      O que você escolher vira regra: as próximas linhas com o mesmo histórico já vêm preenchidas.
+      <span style="border-bottom:2px dotted var(--warning)">Pontilhado</span> = sugestão automática,
       <span style="border-bottom:2px solid var(--good)">sólido</span> = confirmado por você.
     </div>
     <div class="tablecard"><div class="tablescroll"><table>
-      <thead><tr><th>Data</th><th>Histórico</th><th style="min-width:230px">Classificação</th><th class="num">Valor</th><th>DRE</th><th></th></tr></thead>
-      <tbody id="tbody">${(() => {
-        const f = C.filtro||'todas';
-        const vis = rows.filter(r => f==='todas' ? true : f==='pend' ? !r.classe : f==='man' ? r.classe_origem==='manual' : (r.classe && r.classe_origem!=='manual'));
-        return vis.length ? vis.map(r=>linhaConc(r,C)).join('') : emptyRow(6, rows.length ? 'Nenhuma linha neste filtro.' : 'Nenhum extrato importado no período.');
-      })()}</tbody>
+      <thead><tr><th>Data</th><th>Histórico</th><th style="min-width:230px">Classificação</th><th class="num">Valor</th><th>Situação</th><th></th></tr></thead>
+      <tbody id="tbody"></tbody>
     </table></div></div>`;
 
   bindVizToggles(); wireSearch();
 
-  $('#selConta')?.addEventListener('change', e=>{ C.conta = e.target.value; C.aberto = {}; render(); });
-  $('#cbCons')?.addEventListener('change', e=>{ C.consolidar = e.target.checked; render(); });
-  $$('[data-act="imp"]').forEach(b=>b.addEventListener('click', importExtrato));
-  $$('[data-act="auto"]').forEach(b=>b.addEventListener('click', ()=>sugerirVinculos(C.conta)));
-  $$('[data-fc]').forEach(b=>b.addEventListener('click', ()=>{ C.filtro = b.dataset.fc; render(); }));
-  // classificacao: linha individual -> rpc (grava memoria e propaga); grupo do dia -> todas as linhas do grupo
-  const classificar = async (el, campo) => {
-    const tr = el.closest('tr');
-    const clsSel = tr.querySelector('[data-cls]'), catSel = tr.querySelector('[data-cat]');
-    const classe = clsSel?.value || null;
-    const categoria = classe==='despesa' ? (catSel?.value || null) : null;
-    if (campo==='cls' && classe==='despesa' && !catSel){ // precisa escolher a categoria: redesenha so a celula
-      const r = { tipo: el.dataset.tipo, classe, categoria_id:null, classe_origem:'manual' };
-      el.parentElement.innerHTML = selClasse(r, el.dataset.cls ? `data-cls="${el.dataset.cls}" data-tipo="${r.tipo}"` : `data-clsg="${el.dataset.clsg}" data-tipo="${r.tipo}"`);
-      el.parentElement.querySelectorAll('select').forEach(x=>x.addEventListener('change', ev=>classificar(ev.target, ev.target.dataset.cls||ev.target.dataset.clsg ? 'cls' : 'cat')));
-      el.parentElement.querySelector('[data-cat]')?.focus();
-      return;
-    }
-    let msg;
-    if (el.dataset.cls || el.dataset.cat){
-      const id = el.dataset.cls || el.dataset.cat;
-      const { data:n, error } = await sb.rpc('extrato_classificar', { p_id:id, p_classe:classe, p_categoria:categoria, p_propagar:true });
-      if (error) return toast(error.message, true);
-      msg = classe ? `Classificado${n?` · aplicado a ${n} linha(s) com o mesmo histórico`:''}.` : 'Classificação removida.';
-    } else {
-      const [d, nat] = (el.dataset.clsg || el.dataset.catg).split('|');
-      const { error } = await sb.from('extratos').update({ classe, categoria_id:categoria, classe_origem: classe?'manual':null })
-        .eq('conta_id', C.conta).eq('data', d).eq('natureza', nat).eq('agrupavel', true);
-      if (error) return toast(error.message, true);
-      msg = 'Dia inteiro classificado.';
-    }
-    toast(msg); render();
+  const mapa = new Map(rows.map(r=>[chaveLinha(r), r]));
+  const nPend = () => Object.keys(C.pend).length;
+
+  // ---- barra: filtros, Editar / Salvar
+  const pintarBarra = () => {
+    const box = $('#barraConc'); if (!box) return;
+    box.innerHTML = `
+      <div class="sub-tabs" style="margin:0">
+        ${[['todas','Todas'],['pend','A classificar'],['auto','Sugeridas'],['man','Confirmadas']].map(([v,t])=>
+          `<button data-fc="${v}" class="${(C.filtro||'todas')===v?'on':''}">${t}</button>`).join('')}
+      </div>
+      <div class="sub-tabs" style="margin:0">
+        ${[['todas','Entradas e saídas'],['entrada','Só entradas'],['saida','Só saídas']].map(([v,t])=>
+          `<button data-ft="${v}" class="${C.tipo===v?'on':''}">${t}</button>`).join('')}
+      </div>
+      ${S.admin ? `<button class="btn ghost" data-act="auto">${svg(I.link,15)} Sugerir vínculos</button>` : ''}
+      ${S.admin ? (C.edit
+        ? `<button class="btn" data-a="save">Salvar${nPend()?` (${nPend()})`:''}</button><button class="btn ghost" data-a="cancel">Cancelar</button>`
+        : `<button class="btn" data-a="edit">${svg(I.edit,15)} Editar classificação</button>`) : ''}`;
   };
-  $$('[data-ok],[data-okg]').forEach(b=>b.addEventListener('click', e=>{
-    // confirmar sem mudar: reaproveita o fluxo com os valores que ja estao nos seletores
-    const tr = b.closest('tr'); const sel = tr.querySelector('[data-cls],[data-clsg]');
-    classificar(sel, 'cat');
-  }));
-  $$('[data-cls],[data-clsg]').forEach(x=>x.addEventListener('change', e=>classificar(e.target,'cls')));
-  $$('[data-cat],[data-catg]').forEach(x=>x.addEventListener('change', e=>classificar(e.target,'cat')));
-  $$('[data-grp]').forEach(b=>b.addEventListener('click', ()=>abrirGrupo(b.dataset.grp, C)));
-  $$('[data-det]').forEach(b=>b.addEventListener('click', ()=>detalheLancamento(b.dataset.det)));
-  $$('[data-del]').forEach(b=>b.addEventListener('click', ()=>remove('extratos', b.dataset.del, 'lançamento')));
-  $$('[data-tog]').forEach(b=>b.addEventListener('click', async ()=>{
-    const { error } = await sb.from('extratos').update({conciliado: b.dataset.v!=='1'}).eq('id', b.dataset.tog);
-    if (error) return toast(error.message, true);
-    render();
-  }));
-  $$('[data-togg]').forEach(b=>b.addEventListener('click', async ()=>{
-    const [ , d, nat ] = b.dataset.togg.split('|');
-    const { error } = await sb.from('extratos').update({conciliado: b.dataset.v!=='1'})
-      .eq('conta_id', C.conta).eq('data', d).eq('natureza', nat).eq('agrupavel', true);
-    if (error) return toast(error.message, true);
-    render();
-  }));
+
+  // ---- tabela: desenha so o corpo, sem buscar nada no servidor
+  const pintarTabela = () => {
+    const f = C.filtro || 'todas';
+    const vis = rows.filter(r0 => {
+      const r = efetiva(r0, C);
+      const okS = f==='todas' ? true : f==='pend' ? !r.classe : f==='man' ? r.classe_origem==='manual' : (r.classe && r.classe_origem!=='manual');
+      const okT = C.tipo==='entrada' ? r.tipo==='credito' : C.tipo==='saida' ? r.tipo==='debito' : true;
+      return (okS || (C.edit && C.pend[chaveLinha(r0)])) && okT;
+    });
+    $('#tbody').innerHTML = vis.length ? vis.map(r=>linhaConc(r,C)).join('')
+      : emptyRow(6, rows.length ? 'Nenhuma linha neste filtro.' : 'Nenhum extrato importado no período.');
+    const q = $('#q'); if (q && q.value) q.dispatchEvent(new Event('input'));
+  };
+  const repintaLinha = key => {
+    const tr = $(`#tbody tr[data-key="${CSS.escape(key)}"]`), r = mapa.get(key);
+    if (!tr || !r) return pintarTabela();
+    const t = document.createElement('tbody'); t.innerHTML = linhaConc(r, C);
+    tr.replaceWith(t.firstElementChild);
+  };
+  const setPend = (key, r, classe, categoria, forcar) => {
+    const igual = !forcar && classe===(r.classe||null) && (categoria||null)===(r.categoria_id||null) && r.classe_origem==='manual';
+    if (igual) delete C.pend[key]; else C.pend[key] = { classe, categoria: categoria||null };
+    pintarBarra();
+  };
+
+  // "Outro": pergunta que classificacao e essa e ja a adiciona na lista
+  const pedirNomeClasse = (key, r) => {
+    repintaLinha(key);   // volta o seletor ao valor anterior enquanto pergunta
+    const dir = r.tipo==='credito' ? 'entradas' : 'saídas';
+    const outra = r.tipo==='credito' ? 'saídas' : 'entradas';
+    openModal({
+      title: 'Que classificação é essa?',
+      sub: `${brDate(r.data)} · ${r.descricao||''}`,
+      body: `<label style="display:block;font-size:12.5px;color:var(--text-muted);margin-bottom:6px">Nome da nova classificação</label>
+        <input id="nomeCls" class="input" style="width:100%" maxlength="60" placeholder="Ex.: Reembolso de convênio" autocomplete="off">
+        <label style="display:flex;gap:8px;align-items:center;margin-top:12px;font-size:12.5px;cursor:pointer">
+          <input type="checkbox" id="ambosCls"> Usar também nas ${outra} (por padrão fica só nas ${dir})</label>
+        <p style="margin:12px 0 0;font-size:12px;color:var(--text-muted)">Ela entra na lista e já fica disponível para as outras linhas.</p>`,
+      footer: `<button class="btn ghost" data-close>Cancelar</button><button class="btn" id="okCls">Adicionar</button>`,
+      onMount: m => {
+        const inp = $('#nomeCls', m);
+        const go = async () => {
+          const nome = inp.value.trim();
+          if (!nome) return toast('Digite o nome da classificação.', true);
+          const aplica = $('#ambosCls', m).checked ? 'ambos' : r.tipo;
+          const { data:chave, error } = await sb.rpc('extrato_classe_criar', { p_nome:nome, p_aplica_em:aplica });
+          if (error) return toast(error.message, true);
+          await carregarClassesX();
+          setPend(key, r, chave, null, true);
+          closeModal(); pintarTabela();
+          toast(`Classificação "${nome}" adicionada.`);
+        };
+        $('#okCls', m).addEventListener('click', go);
+        inp.addEventListener('keydown', ev => { if (ev.key==='Enter') go(); });
+      }
+    });
+  };
+
+  const salvar = async () => {
+    const itens = []; let semCat = 0;
+    for (const [key, p] of Object.entries(C.pend)){
+      if (!mapa.has(key)) continue;
+      if (p.classe==='despesa' && !p.categoria){ semCat++; continue; }
+      if (key.startsWith('g|')){ const [ , d, nat ] = key.split('|');
+        itens.push({ k:key, grupo:true, conta:C.conta, data:d, natureza:nat, classe:p.classe, categoria:p.categoria }); }
+      else itens.push({ k:key, id:key, classe:p.classe, categoria:p.categoria });
+    }
+    if (semCat) return toast(`${semCat} linha(s) marcada(s) como despesa estão sem categoria. Escolha a categoria antes de salvar.`, true);
+    if (!itens.length){ C.edit = false; C.pend = {}; pintarBarra(); return pintarTabela(); }
+    const btn = $('[data-a="save"]'); if (btn){ btn.disabled = true; btn.textContent = 'Salvando…'; }
+    for (let i = 0; i < itens.length; i += 100){
+      const lote = itens.slice(i, i + 100);
+      const { error } = await sb.rpc('extrato_classificar_lote', { p_itens: lote });
+      if (error){ pintarBarra(); return toast(`Não salvou tudo: ${error.message}. O que já foi gravado saiu da lista; o resto continua aqui.`, true); }
+      lote.forEach(x => delete C.pend[x.k]);
+    }
+    C.pend = {}; C.edit = false;
+    toast(`${itens.length} classificação(ões) salva(s).`);
+    render();   // uma unica recarga, so depois de salvar
+  };
+
+  $('#barraConc').addEventListener('click', ev => {
+    const b = ev.target.closest('button'); if (!b) return;
+    if (b.dataset.fc){ C.filtro = b.dataset.fc; pintarBarra(); return pintarTabela(); }
+    if (b.dataset.ft){ C.tipo = b.dataset.ft;   pintarBarra(); return pintarTabela(); }
+    if (b.dataset.act==='auto'){ if (nPend()) return toast('Salve ou cancele as alterações antes.', true); return sugerirVinculos(C.conta); }
+    if (b.dataset.a==='edit'){ C.edit = true; pintarBarra(); return pintarTabela(); }
+    if (b.dataset.a==='cancel'){
+      if (nPend() && !confirm(`Descartar ${nPend()} alteração(ões) não salva(s)?`)) return;
+      C.pend = {}; C.edit = false; pintarBarra(); return pintarTabela();
+    }
+    if (b.dataset.a==='save') return salvar();
+  });
+
+  const tb = $('#tbody');
+  tb.addEventListener('change', ev => {
+    const el = ev.target.closest('select[data-k]'); if (!el) return;
+    const key = el.dataset.k, r = mapa.get(key); if (!r) return;
+    const at = efetiva(r, C);
+    if (el.dataset.f==='cls'){
+      const nova = el.value || null;
+      if (nova==='outro') return pedirNomeClasse(key, at);
+      setPend(key, r, nova, null);
+    } else {
+      setPend(key, r, at.classe, el.value || null);
+    }
+    repintaLinha(key);
+  });
+  tb.addEventListener('click', async ev => {
+    const b = ev.target.closest('button'); if (!b) return;
+    if (b.dataset.f==='ok'){
+      const r = mapa.get(b.dataset.k); if (!r) return;
+      setPend(b.dataset.k, r, r.classe, r.categoria_id, true); return repintaLinha(b.dataset.k);
+    }
+    if (b.dataset.grp) return abrirGrupo(b.dataset.grp, C, pintarTabela);
+    if (b.dataset.det) return detalheLancamento(b.dataset.det);
+    if (b.dataset.del) return remove('extratos', b.dataset.del, 'lançamento');
+    if (b.dataset.tog || b.dataset.togg){
+      const key = b.dataset.tog || b.dataset.togg, r = mapa.get(key); if (!r) return;
+      const novo = b.dataset.v !== '1';
+      let q = sb.from('extratos').update({ conciliado: novo });
+      q = b.dataset.tog ? q.eq('id', key)
+        : q.eq('conta_id', C.conta).eq('data', r.data).eq('natureza', r.natureza).eq('agrupavel', true);
+      const { error } = await q;
+      if (error) return toast(error.message, true);
+      r.conciliado = novo; repintaLinha(key);
+    }
+  });
+
+  $('#selConta')?.addEventListener('change', e=>{
+    if (nPend()){ e.target.value = C.conta; return toast('Salve ou cancele as alterações antes de trocar de conta.', true); }
+    C.conta = e.target.value; C.aberto = {}; render(); });
+  $('#cbCons')?.addEventListener('change', e=>{
+    if (nPend()){ e.target.checked = !!C.consolidar; return toast('Salve ou cancele as alterações antes.', true); }
+    C.consolidar = e.target.checked; render(); });
+  $$('[data-act="imp"]').forEach(b=>b.addEventListener('click', importExtrato));
+  if (!window._pendAviso){
+    window._pendAviso = 1;
+    window.addEventListener('beforeunload', ev => {
+      const P = S.sub?.conc?.pend; if (P && Object.keys(P).length){ ev.preventDefault(); ev.returnValue = ''; }
+    });
+  }
+
+  pintarBarra(); pintarTabela();
 
   if (rows.length){
     S.charts.coMes = new Chart($('#chCoMes'), {
@@ -2501,7 +2639,8 @@ async function pageConciliacao(){
   }
 }
 
-function linhaConc(r, C){
+function linhaConc(r0, C){
+  const r = efetiva(r0, C);
   const nat = `<span class="pill"><i style="background:${NAT_COR[r.natureza]||PAL[4]}"></i>${esc(NATUREZA[r.natureza]||r.natureza||'—')}</span>`;
   const busca = esc(((r.descricao||'')+' '+(NATUREZA[r.natureza]||'')+' '+brDate(r.data)).toLowerCase());
 
@@ -2509,7 +2648,7 @@ function linhaConc(r, C){
     const aberto = !!C.aberto[r.linha_id];
     const det = aberto ? (C.det?.[r.linha_id] || null) : null;
     return `
-      <tr data-s="${busca}" style="background:var(--page)">
+      <tr data-key="${esc(chaveLinha(r))}" data-s="${busca}" style="background:var(--page)">
         <td>${brDate(r.data)}</td>
         <td>
           <button class="linkbtn" data-grp="${esc(r.linha_id)}" style="background:none;border:0;padding:0;cursor:pointer;color:var(--s1);font:inherit;font-weight:600;text-align:left">
@@ -2517,7 +2656,7 @@ function linhaConc(r, C){
           </button>
           <div style="font-size:11.5px;color:var(--text-muted)">${r.qtde.toLocaleString('pt-BR')} lançamentos agrupados</div>
         </td>
-        <td>${S.admin ? selClasse(r, `data-clsg="${r.data}|${r.natureza}" data-tipo="${r.tipo}"`) : `<span class="pill">${esc(CLASSE_NOME[r.classe]||'—')}</span>`}
+        <td>${celulaClasse(r, chaveLinha(r), C)}
           <div style="font-size:11px;color:var(--text-muted);margin-top:3px">${nat}</div></td>
         <td class="num"><b class="pos">+ ${money(r.valor)}</b></td>
         <td><span class="pill" title="Venda: bate com o faturamento do Imex pelo total do mês"><i style="background:${r.classe?'var(--good)':'var(--warning)'}"></i>${r.classe?'ok':'—'}</span></td>
@@ -2533,11 +2672,10 @@ function linhaConc(r, C){
   }
 
   const id = r.linha_id.slice(2);
-  return `<tr data-s="${busca}">
+  return `<tr data-key="${esc(id)}" data-s="${busca}">
     <td>${brDate(r.data)}</td>
     <td><button class="linkbtn" data-det="${id}" style="background:none;border:0;padding:0;cursor:pointer;color:inherit;font:inherit;text-align:left;text-decoration:underline;text-decoration-color:var(--grid);text-underline-offset:3px">${esc(r.descricao)}</button></td>
-    <td>${S.admin ? selClasse(r, `data-cls="${id}" data-tipo="${r.tipo}"`) : `<span class="pill">${esc(CLASSE_NOME[r.classe]||'—')}</span>`}
-      ${r.classe==='despesa' && r.categoria_id && !S.admin ? `<div style="font-size:11.5px;color:var(--text-muted)">${esc(nomeCategoria(r.categoria_id))}</div>`:''}</td>
+    <td>${celulaClasse(r, id, C)}</td>
     <td class="num"><b class="${r.tipo==='credito'?'pos':''}">${r.tipo==='credito'?'+':'−'} ${money(r.valor)}</b></td>
     <td>${r.erp_pagamento_id ? `<span class="pill" title="Casou com um título do contas a pagar do Imex (mesmo valor, até 10 dias)"><i style="background:var(--good)"></i>Imex ✓</span>${r.fornecedor?`<div style="font-size:11px;color:var(--text-muted);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(r.fornecedor)}">${esc(r.fornecedor)}</div>`:''}`
         : r.despesa_id ? `<span class="pill" title="Casou com um lançamento da DRE — clique no histórico para ver"><i style="background:var(--good)"></i>DRE ✓</span>`
@@ -2644,8 +2782,9 @@ async function detalheLancamento(id){
   });
 }
 
-async function abrirGrupo(linhaId, C){
-  if (C.aberto[linhaId]){ delete C.aberto[linhaId]; return render(); }
+async function abrirGrupo(linhaId, C, depois){
+  const fim = depois || render;
+  if (C.aberto[linhaId]){ delete C.aberto[linhaId]; return fim(); }
   const [ , d, nat ] = linhaId.split(':');
   C.aberto[linhaId] = true; C.det = C.det || {};
   if (!C.det[linhaId]){
@@ -2653,7 +2792,7 @@ async function abrirGrupo(linhaId, C){
     if (error) return toast(error.message, true);
     C.det[linhaId] = data || [];
   }
-  render();
+  fim();
 }
 
 async function sugerirVinculos(contaId){

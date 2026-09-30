@@ -281,6 +281,15 @@ async function enviar(tipo, rows) {
       });
     }
 
+    // remove repeticoes (mesmo erp_id) — o banco recusa duplicata no mesmo lote
+    const semDup = (arr) => { const m = new Map(); arr.forEach(x => m.set(x.erp_id, x)); return [...m.values()]; };
+    const nDesp = despesas.length, nPag = pagamentos.length;
+    despesas = semDup(despesas);
+    const pagamentosUnicos = semDup(pagamentos);
+    if (despesas.length !== nDesp || pagamentosUnicos.length !== nPag)
+      log(`  duplicatas removidas: despesas ${nDesp - despesas.length} · pagamentos ${nPag - pagamentosUnicos.length}`);
+    pagamentos.length = 0; pagamentosUnicos.forEach(x => pagamentos.push(x));
+
     const rd = await enviar('despesas', despesas);
     log(`despesas: ${despesas.length} enviada(s)` +
         (rd.gravados !== undefined ? ` · ${rd.gravados} gravada(s) no DRE · ${rd.ignorados||0} fora do DRE (compra de combustível, conta patrimonial)` : ''));
