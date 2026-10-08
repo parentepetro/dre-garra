@@ -123,6 +123,7 @@ const PAGES = [
   {sec:'Controle'},
   {id:'acerto', nome:'Acerto de contas', icon:I.swap, sub:'Dinheiro e combustível com os postos do grupo'},
   {id:'creditos', nome:'Créditos', icon:I.hand, sub:'O que terceiros devem ao posto'},
+  {id:'saldo', nome:'Saldo', icon:I.bank, sub:'Saldo bancário do posto (FinBank)'},
   {id:'conciliacao', nome:'Conciliação', icon:I.bank, sub:'Extratos bancários e vínculos'},
   {id:'documentos', nome:'Documentos', icon:I.doc, sub:'Arquivos mensais e obrigatórios'},
   {id:'cadastros', nome:'Cadastros', icon:I.cog, sub:'Sócios, empresas, categorias e contas'}
@@ -249,7 +250,7 @@ async function render(){
     await ({
       dashboard: pageDashboard, vendas: pageVendas, aportes: pageAportes,
       retiradas: pageRetiradas, despesas: pageDespesas, receber: pageReceber, acerto: pageAcerto, creditos: pageCreditos,
-      conciliacao: pageConciliacao,
+      conciliacao: pageConciliacao, saldo: pageSaldo,
       documentos: pageDocumentos, cadastros: pageCadastros
     })[S.page]();
   } catch(e){
@@ -2163,7 +2164,8 @@ async function pageCreditos(){
           <td class="num">${c.valor_encargos!=null?money(c.valor_encargos):'—'}</td>
           <td class="num"><b>${money(c.valor)}</b></td>
           <td class="num">${Number(c.valor_recebido)>0?money(c.valor_recebido):'—'}</td>
-          <td class="num"><b>${money(Number(c.valor)-Number(c.valor_recebido))}</b></td>
+          <td class="num"><b>${money(Number(c.valor)-Number(c.valor_recebido))}</b>
+            ${S.admin && c.status!=='recebido' ? `<div><button class="btn ghost" data-quitar="${c.id}" style="padding:2px 9px;font-size:11.5px;margin-top:4px">Quitar</button></div>` : ''}</td>
           <td><span class="pill"><i style="background:${c.status==='recebido'?'var(--good)':c.status==='parcial'?'var(--warning)':'var(--critical)'}"></i>${c.status==='recebido'?'Recebido':c.status==='parcial'?'Parcial':'Em aberto'}</span></td>
           <td>${acts(c.id)}</td>
         </tr>`).join('') : emptyRow(11,'Nenhum crédito registrado.')}</tbody>
@@ -2177,6 +2179,12 @@ async function pageCreditos(){
   bindVizToggles(); wireSearch();
   $('#cbRec')?.addEventListener('change', e=>{ K.incluirRecebidos = e.target.checked; render(); });
   bindCrud('creditos', todos, formCredito);
+  $$('[data-quitar]').forEach(b=>b.addEventListener('click', async ()=>{
+    const c = todos.find(x=>x.id===b.dataset.quitar); if (!c) return;
+    const falta = Number(c.valor) - Number(c.valor_recebido||0);
+    if (!confirm(`Quitar ${money(falta)} de ${c.devedor}${c.descricao?' ('+c.descricao+')':''}?`)) return;
+    if (await save('creditos', { valor_recebido: Number(c.valor), status:'recebido', data_recebimento: iso(today()) }, c.id)) render();
+  }));
 
   if (devedores.length) S.charts.crDev = new Chart($('#chCrDev'), {
     type:'bar',
@@ -2202,7 +2210,9 @@ function formCredito(r={}){
     wide: true,
     body: `<div class="frow">
       ${fld('Data', inp('data','date', r.data||iso(today()), 'required'))}
-      ${fld('Devedor', inp('devedor','text', r.devedor||'Antigo proprietário'))}
+      ${fld('Devedor', sel('devedor_sel', [{v:'Felipe',t:'Felipe'},{v:'Antigo proprietário',t:'Antigo proprietário'},{v:'Outro',t:'Outro...'}],
+          (['Felipe','Antigo proprietário'].includes(r.devedor) || !r.devedor) ? (r.devedor||'Felipe') : 'Outro'))}
+      ${fld('Nome do devedor (se Outro)', inp('devedor_outro','text', (['Felipe','Antigo proprietário'].includes(r.devedor) || !r.devedor) ? '' : r.devedor, 'placeholder="Nome de quem deve"'), 'full')}
       ${fld('Origem', sel('origem', opts(ORIGEM_CRED), r.origem||'rescisao'))}
       ${fld('Descrição', inp('descricao','text', r.descricao), 'full')}
       ${fld('Referência', inp('referencia','text', r.referencia, 'placeholder="cargo, documento, contrato..."'))}
@@ -2225,14 +2235,77 @@ function formCredito(r={}){
       [b,e].forEach(el=>el.addEventListener('blur', soma));
       t.addEventListener('input', ()=>{ delete t.dataset.auto; });
 
+      const selD = m.querySelector('[name="devedor_sel"]'), outD = m.querySelector('[name="devedor_outro"]');
+      const showOut = () => { outD.closest('.field').style.display = selD.value==='Outro' ? '' : 'none'; };
+      selD.addEventListener('change', showOut); showOut();
+
       $('#sv',m).addEventListener('click', async ()=>{
         const d = formData(m);
+        d.devedor = d.devedor_sel==='Outro' ? (d.devedor_outro||'').trim() : d.devedor_sel;
+        delete d.devedor_sel; delete d.devedor_outro;
         if (!d.devedor) return toast('Informe o devedor.', true);
         if (!d.valor)   return toast('Informe o valor.', true);
         d.valor_recebido = d.valor_recebido || 0;
         if (await save('creditos', d, r.id)) { closeModal(); render(); }
       });
     }
+  });
+}
+
+
+/* ============================================================
+   SALDO BANCÁRIO
+   ============================================================ */
+async function pageSaldo(){
+  const { data, error } = await sb.from('saldos_bancarios').select('*').order('data',{ascending:false}).order('criado_em',{ascending:false});
+  if (error){ $('#view').innerHTML = `<div class="msg err">${esc(error.message)}</div>`; return; }
+  const rows = data || [];
+  const atual = rows[0];
+  const ant = rows[1];
+  const var_ = atual && ant ? Number(atual.saldo) - Number(ant.saldo) : null;
+  const cr = await sb.from('creditos').select('valor,valor_recebido,status');
+  const credAberto = (cr.data||[]).filter(c=>c.status!=='recebido').reduce((a,c)=>a+Number(c.valor)-Number(c.valor_recebido||0),0);
+
+  $('#view').innerHTML = `
+    ${roNote()}
+    <div class="grid tiles" style="margin-bottom:16px">
+      ${tile('Saldo em conta', atual?money(atual.saldo):'—', atual?`${esc(atual.banco)} ${esc(atual.conta)} · ${brDate(atual.data)} · ${esc(atual.fonte)}`:'Sem saldo registrado', PAL[0])}
+      ${tile('Variação vs. leitura anterior', var_!=null?money(var_):'—', ant?`anterior: ${brDate(ant.data)}`:'', var_!=null&&var_<0?'var(--critical)':'var(--good)')}
+      ${tile('Créditos em aberto', money(credAberto), 'a receber de Felipe e outros (aba Créditos)', PAL[3])}
+      ${tile('Saldo + créditos', money((atual?Number(atual.saldo):0)+credAberto), 'o que há em caixa + o que devem ao posto', PAL[6])}
+    </div>
+    ${toolbar(btnNovo('Registrar saldo','new'))}
+    <div class="tablecard"><div class="tablescroll"><table>
+      <thead><tr><th>Data</th><th>Banco / conta</th><th>Fonte</th><th>Observações</th><th class="num">Saldo</th><th></th></tr></thead>
+      <tbody id="tbody">${rows.length ? rows.map(r=>`
+        <tr data-s="${esc(((r.banco||'')+' '+(r.observacoes||'')+' '+brDate(r.data)).toLowerCase())}">
+          <td>${brDate(r.data)}</td><td>${esc(r.banco)} · ${esc(r.conta)}</td>
+          <td><span class="pill">${esc(r.fonte)}</span></td>
+          <td style="font-size:12.5px">${esc(r.observacoes||'—')}</td>
+          <td class="num"><b>${money(r.saldo)}</b></td><td>${acts(r.id)}</td></tr>`).join('') : emptyRow(6,'Nenhum saldo registrado.')}</tbody>
+    </table></div></div>`;
+  wireSearch();
+  bindCrud('saldos_bancarios', rows, formSaldo);
+}
+
+function formSaldo(r={}){
+  openModal({
+    title: r.id ? 'Editar saldo' : 'Registrar saldo',
+    sub: 'Saldo da conta na data (ex.: lido no FinBank)',
+    body: `<div class="frow">
+      ${fld('Data', inp('data','date', r.data||iso(today()), 'required'))}
+      ${fld('Saldo (R$)', inp('saldo','text', r.saldo!=null?NUM.format(r.saldo):'', 'data-money="1" inputmode="decimal" placeholder="0,00"'))}
+      ${fld('Banco', inp('banco','text', r.banco||'Banco do Brasil'))}
+      ${fld('Conta', inp('conta','text', r.conta||'20705-5'))}
+      ${fld('Fonte', inp('fonte','text', r.fonte||'manual'))}
+      ${fld('Observações', txa('observacoes', r.observacoes), 'full')}
+    </div>`,
+    footer: `<button class="btn ghost" data-close>Cancelar</button><button class="btn" id="sv">Salvar</button>`,
+    onMount: m => $('#sv',m).addEventListener('click', async ()=>{
+      const d = formData(m);
+      if (d.saldo==null) return toast('Informe o saldo.', true);
+      if (await save('saldos_bancarios', d, r.id)) { closeModal(); render(); }
+    })
   });
 }
 
