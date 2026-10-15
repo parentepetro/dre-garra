@@ -402,6 +402,17 @@ tfoot td{padding:12px 14px;background:var(--surface-2);font-weight:700;border-to
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.58.0/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+/* Aviso: o painel mudou de endereço. Aparece só no endereço antigo (github.io). */
+if (/github\.io$/.test(location.hostname)) {
+  document.addEventListener('DOMContentLoaded', function () {
+    var b = document.createElement('div');
+    b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#b45309;color:#fff;font:600 14px/1.4 system-ui,sans-serif;padding:10px 16px;text-align:center';
+    b.innerHTML = 'O painel mudou de endereço. Use o novo: <a href="https://dregarra.hubparente.com.br/" style="color:#fff;text-decoration:underline">dregarra.hubparente.com.br</a>';
+    document.body.appendChild(b);
+  });
+}
+</script>
 <script src="app.js?v=01182eba"></script>
 <script>
 if ('serviceWorker' in navigator) {
