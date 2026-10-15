@@ -188,6 +188,44 @@ header.top .sub{font-size:12px;color:var(--text-muted);margin-top:1px}
 .tile .foot{font-size:11.5px;color:var(--text-secondary);margin-top:5px;display:flex;align-items:center;gap:5px}
 .pos{color:var(--good-ink)} .neg{color:var(--critical)}
 
+
+/* ---- cards coloridos (padrao para todas as abas) ---- */
+.tiles>.tile:not(.tile-c):nth-child(8n+1){--c:var(--s1)}.tiles>.tile:not(.tile-c):nth-child(8n+2){--c:var(--s3)}
+.tiles>.tile:not(.tile-c):nth-child(8n+3){--c:var(--s2)}.tiles>.tile:not(.tile-c):nth-child(8n+4){--c:var(--s4)}
+.tiles>.tile:not(.tile-c):nth-child(8n+5){--c:var(--s7)}.tiles>.tile:not(.tile-c):nth-child(8n+6){--c:var(--s5)}
+.tiles>.tile:not(.tile-c):nth-child(8n+7){--c:var(--s6)}.tiles>.tile:not(.tile-c):nth-child(8n+8){--c:var(--s8)}
+.tile{position:relative;overflow:hidden;transition:transform .15s,box-shadow .15s}
+.tile:hover{transform:translateY(-2px);box-shadow:var(--shadow-md)}
+.tiles>.tile:not([style*="background"]){
+  --c:var(--c,var(--s1));
+  background:linear-gradient(135deg,color-mix(in srgb,var(--c,#2a78d6) 15%,#fff) 0%,color-mix(in srgb,var(--c,#2a78d6) 3%,#fff) 70%);
+  border-color:color-mix(in srgb,var(--c,#2a78d6) 24%,transparent);
+  border-top:3px solid var(--c,#2a78d6);
+}
+.tiles>.tile:not([style*="background"]) .lbl{color:color-mix(in srgb,var(--c,#2a78d6) 70%,#243442)}
+.tiles>.tile:not([style*="background"])::after{content:"";position:absolute;right:-22px;bottom:-22px;width:80px;height:80px;border-radius:50%;background:var(--c,#2a78d6);opacity:.09}
+.card:has(>.card-h){border-top:3px solid var(--s1)}
+.grid>.card:has(>.card-h):nth-child(4n+2){border-top-color:var(--s3)}
+.grid>.card:has(>.card-h):nth-child(4n+3){border-top-color:var(--s2)}
+.grid>.card:has(>.card-h):nth-child(4n+4){border-top-color:var(--s7)}
+.card>.card-h{background:linear-gradient(180deg,rgba(42,120,214,.06),transparent);border-radius:var(--radius) var(--radius) 0 0;padding-bottom:6px}
+
+/* ---- aba Dividendos ---- */
+.dv-grid{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+.dv-card{position:relative;overflow:hidden;border-radius:var(--radius);padding:16px 17px;border:1px solid color-mix(in srgb,var(--c) 30%,transparent);
+  background:linear-gradient(145deg,color-mix(in srgb,var(--c) 18%,#fff),color-mix(in srgb,var(--c) 4%,#fff) 75%);border-top:4px solid var(--c)}
+.dv-top{display:flex;justify-content:space-between;align-items:center}
+.dv-tag{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:color-mix(in srgb,var(--c) 75%,#243442)}
+.dv-pct{background:var(--c);color:#fff;font-weight:700;font-size:12px;padding:2px 9px;border-radius:99px}
+.dv-nome{font-size:16px;font-weight:700;margin-top:8px}
+.dv-big{font-size:26px;font-weight:750;letter-spacing:-.03em;margin-top:4px;color:color-mix(in srgb,var(--c) 80%,#0f1b24)}
+.dv-sub{font-size:11.5px;color:var(--text-secondary)}
+.dv-bar{height:6px;background:rgba(15,27,36,.08);border-radius:9px;margin:10px 0 8px;overflow:hidden}.dv-bar i{display:block;height:100%;background:var(--c);border-radius:9px}
+.dv-dl{display:grid;grid-template-columns:1fr auto;gap:3px 10px;margin:0;font-size:12px}.dv-dl dt{color:var(--text-secondary)}.dv-dl dd{margin:0;text-align:right;font-weight:600}
+.dv-ins{display:flex;flex-direction:column;gap:9px}
+.dv-i{display:flex;gap:10px;padding:10px 12px;border-radius:10px;border-left:4px solid var(--s1);background:rgba(42,120,214,.07)}
+.dv-i p{margin:2px 0 0;font-size:12.5px;color:var(--text-secondary)}.dv-i b{font-size:13px}
+.dv-ok{border-color:var(--s3);background:rgba(27,175,122,.09)}.dv-warn{border-color:var(--s4);background:rgba(237,161,0,.10)}.dv-bad{border-color:var(--s8);background:rgba(227,73,72,.09)}
 .chart-wrap{position:relative;height:288px}
 .chart-wrap.tall{height:330px}
 .legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:12px;padding-top:11px;border-top:1px solid var(--grid)}
@@ -533,6 +571,7 @@ const PAGES = [
   {id:'vendas', nome:'Vendas', icon:I.chart, sub:'Faturamento, CMV, lucro bruto e margem'},
   {sec:'Movimentação'},
   {id:'aportes', nome:'Aportes', icon:I.in, sub:'Capital investido por cada sócio'},
+  {id:'dividendos', nome:'Dividendos', icon:I.hand, sub:'Divisão do resultado, reserva de giro e quanto resgatar'},
   {id:'retiradas', nome:'Retiradas', icon:I.out, sub:'Pró-labore, lucros e adiantamentos'},
   {id:'despesas', nome:'Despesas', icon:I.exp, sub:'Custos e despesas por centro de custo'},
   {id:'receber', nome:'A receber', icon:I.recv, sub:'Títulos em aberto por cliente'},
@@ -665,7 +704,7 @@ async function render(){
   try {
     await ({
       dashboard: pageDashboard, vendas: pageVendas, aportes: pageAportes,
-      retiradas: pageRetiradas, despesas: pageDespesas, receber: pageReceber, acerto: pageAcerto, creditos: pageCreditos,
+      retiradas: pageRetiradas, dividendos: pageDividendos, despesas: pageDespesas, receber: pageReceber, acerto: pageAcerto, creditos: pageCreditos,
       conciliacao: pageConciliacao, saldo: pageSaldo,
       documentos: pageDocumentos, cadastros: pageCadastros
     })[S.page]();
@@ -863,8 +902,8 @@ function miniTable(cols, rows, foot){
 
 function tile(lbl, val, foot='', color=null, cls='', fundo=null){
   // fundo: uma cor de fundo bem clarinha, para o card que precisa saltar
-  const est = fundo ? ` style="background:${fundo};border-color:${fundo}"` : '';
-  return `<div class="card tile"${est}>
+  const est = fundo ? ` style="background:${fundo};border-color:${fundo}"` : (color ? ` style="--c:${color}"` : '');
+  return `<div class="card tile${color&&!fundo?' tile-c':''}"${est}>
     <div class="lbl">${color?`<i style="background:${color}"></i>`:''}${esc(lbl)}</div>
     <div class="val ${cls}">${val}</div>
     ${foot?`<div class="foot">${foot}</div>`:''}
@@ -1298,6 +1337,136 @@ function formAporte(r={}){
       if (await save('aportes', d, r.id)) { closeModal(); render(); }
     })
   });
+}
+
+/* ============================================================
+   DIVIDENDOS  (só leitura: nada é gravado no banco; reserva e % ficam neste navegador)
+   ============================================================ */
+const DV_PADRAO = { reserva: 400000, g: 40, f: 40, adm: 10, posto: 10 };
+function dvLer(){
+  try { return Object.assign({}, DV_PADRAO, JSON.parse(localStorage.getItem('dre_dividendos')||'{}')); }
+  catch(e){ return Object.assign({}, DV_PADRAO); }
+}
+function dvGravar(c){ try { localStorage.setItem('dre_dividendos', JSON.stringify(c)); } catch(e){} }
+
+async function pageDividendos(){
+  const cfg = dvLer();
+  const [de, fa, re, sa, rc, cr] = await Promise.all([
+    periodo('despesas'), periodo('faturamento','*','competencia'), periodo('retiradas'),
+    sb.from('saldos_bancarios').select('*').order('data',{ascending:false}).order('criado_em',{ascending:false}),
+    sb.from('contas_receber').select('valor_aberto,vencimento').gt('valor_aberto',0),
+    sb.from('creditos').select('valor,valor_recebido,status')
+  ]);
+  const resultado = (sum(fa,'faturamento_bruto') - sum(fa,'custo_mercadoria')) - sum(de.filter(d=>d.status!=='cancelado'));
+  const base = Math.max(resultado,0);
+
+  /* saldo atual: leitura mais recente de cada conta */
+  const vistos = new Set(); let saldo = 0, dataSaldo = null, nContas = 0;
+  (sa.data||[]).forEach(r=>{ const k=(r.banco||'')+'|'+(r.conta||''); if (vistos.has(k)) return; vistos.add(k);
+    saldo += Number(r.saldo)||0; nContas++; if (!dataSaldo || r.data>dataSaldo) dataSaldo = r.data; });
+  const aReceber = sum(rc.data||[],'valor_aberto');
+  const hoje = iso(today());
+  const vencido = sum((rc.data||[]).filter(x=>x.vencimento && x.vencimento<hoje),'valor_aberto');
+  const credAberto = (cr.data||[]).filter(c=>c.status!=='recebido').reduce((a,c)=>a+Number(c.valor)-Number(c.valor_recebido||0),0);
+
+  /* quem é quem */
+  const reais = S.socios.filter(s=>!s.e_empresa);
+  const sG = reais.find(s=>/guilherme/i.test(s.nome)) || reais[0];
+  const sF = reais.find(s=>/felipe/i.test(s.nome))    || reais[1];
+  const sP = S.socios.find(s=>s.e_empresa);
+  const retDe = s => s ? sum(re.filter(r=>r.socio_id===s.id)) : 0;
+
+  const partes = [
+    { k:'g',     nome: sG?.nome||'Guilherme', tag:'Sócio',          cor: PAL[0], ret: retDe(sG) },
+    { k:'f',     nome: sF?.nome||'Felipe',    tag:'Sócio',          cor: PAL[1], ret: retDe(sF) },
+    { k:'adm',   nome: 'ADM',                 tag:'Administração',  cor: PAL[3], ret: 0 },
+    { k:'posto', nome: 'Posto',               tag:'Reinvestimento', cor: PAL[2], ret: retDe(sP) }
+  ].map(p=>{ p.pct = Number(cfg[p.k])||0; p.cota = base*p.pct/100; p.devido = Math.max(p.cota-p.ret,0); p.excesso = Math.max(p.ret-p.cota,0); return p; });
+
+  const somaPct = partes.reduce((a,p)=>a+p.pct,0);
+  const totCota = partes.reduce((a,p)=>a+p.cota,0);
+  const totRet  = partes.reduce((a,p)=>a+p.ret,0);
+  const totDev  = partes.reduce((a,p)=>a+p.devido,0);
+
+  const reserva = Number(cfg.reserva)||0;
+  const livre = Math.max(saldo - reserva, 0);
+  const falta = Math.max(reserva - saldo, 0);
+  const pagavel = Math.min(livre, totDev);
+  partes.forEach(p=>{ p.agora = totDev ? pagavel*p.devido/totDev : 0; p.depois = p.devido - p.agora; });
+  const saldoApos = saldo - pagavel;
+
+  /* ---------- sugestões ---------- */
+  const ins = [];
+  const add = (nivel, t, d) => ins.push({nivel,t,d});
+  if (!nContas) add('warn','Sem saldo bancário lido','Registre/ligue a leitura do FinBank (aba Saldo) para eu calcular quanto dá para pagar sem ferir a reserva.');
+  if (Math.round(somaPct)!==100) add('warn',`Os percentuais somam ${somaPct.toLocaleString('pt-BR')}%`,'Ajuste para fechar 100%, senão sobra ou falta resultado.');
+  if (resultado<=0) add('bad','O período não teve resultado positivo','Resultado do painel: '+money(resultado)+'. Não há dividendo a distribuir; mantenha o caixa.');
+  if (nContas && saldo<reserva) add('bad',`Caixa abaixo da reserva em ${money(falta)}`,'Nenhuma retirada deve sair agora. Primeiro recomponha o giro (cobrar vencidos, créditos em aberto) até chegar em '+money(reserva)+'.');
+  if (nContas && saldo>=reserva && totDev>livre) add('warn',`Só dá para pagar ${money(pagavel)} agora de ${money(totDev)} devidos`,`Pagar o restante (${money(totDev-pagavel)}) em parcelas, conforme o caixa voltar a passar de ${money(reserva)}. Dividendo é do resultado; quem manda no quando é o caixa.`);
+  if (nContas && saldo>=reserva && totDev>0 && totDev<=livre) add('ok','Dá para pagar tudo e manter a reserva',`Após pagar ${money(totDev)}, o caixa fica em ${money(saldoApos)} (reserva ${money(reserva)}).`);
+  const exc = partes.filter(p=>p.excesso>0);
+  exc.forEach(p=>add('warn',`${p.nome} já retirou ${money(p.excesso)} a mais que a sua cota`,'Considere compensar nas próximas distribuições em vez de pagar de novo.'));
+  if (vencido>0) add('info',`${money(vencido)} em contas a receber vencidas`,'Cobrar isso é a forma mais barata de reforçar o caixa sem mexer na reserva.');
+  if (credAberto>0) add('info',`${money(credAberto)} de créditos em aberto (aba Créditos)`,'São dinheiro do posto na mão de terceiros: receber antes de distribuir protege o giro.');
+  if (aReceber>0) add('info',`A receber em carteira: ${money(aReceber)}`,'Resultado já conta essas vendas, mas o dinheiro ainda não entrou: por isso resultado ≠ caixa.');
+  if (resultado>0 && saldo>0 && nContas) add('info','Regra prática','Pague em datas fixas (ex.: dia 10 do mês seguinte) só do que passar da reserva, e confira o saldo do FinBank no dia do pagamento.');
+  const ICO = {ok:'✅',warn:'⚠️',bad:'⛔',info:'💡'};
+
+  const maxVal = Math.max(...partes.map(p=>p.cota),1);
+
+  $('#view').innerHTML = `
+    ${roNote()}
+    <div class="grid tiles" style="margin-bottom:16px">
+      ${tile('Resultado do período', money(resultado), `Lucro bruto − despesas · ${brDate(S.from)} a ${brDate(S.to)}`, resultado<0?'var(--critical)':PAL[2], resultado<0?'neg':'')}
+      ${tile('Dividendos do período', money(totCota), `${somaPct.toLocaleString('pt-BR')}% do resultado`, PAL[0])}
+      ${tile('Já retirado', money(totRet), 'retiradas dos sócios e do posto no período', PAL[3])}
+      ${tile('A distribuir', money(totDev), 'cotas menos o que já foi retirado', PAL[6])}
+    </div>
+
+    <div class="grid tiles" style="margin-bottom:16px">
+      ${tile('Saldo em conta', nContas?money(saldo):'—', nContas?`FinBank · leitura de ${brDate(dataSaldo)}`:'sem leitura', PAL[0])}
+      ${tile('Reserva de giro', money(reserva), 'fica sempre na conta', PAL[7])}
+      ${tile(falta>0?'Falta para a reserva':'Caixa livre', money(falta>0?falta:livre), falta>0?'não retirar nada agora':'acima da reserva', falta>0?'var(--critical)':PAL[5], falta>0?'neg':'pos')}
+      ${tile('Pode pagar agora', money(pagavel), `caixa após pagar: ${money(saldoApos)}`, PAL[2], 'pos')}
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-h"><div><h3>Quanto cada um pode resgatar</h3><p>Cota do resultado − retiradas já feitas · limitado ao caixa acima da reserva</p></div></div>
+      <div class="card-b"><div class="grid dv-grid">
+        ${partes.map(p=>`<div class="dv-card" style="--c:${p.cor}">
+          <div class="dv-top"><span class="dv-tag">${esc(p.tag)}</span><span class="dv-pct">${p.pct.toLocaleString('pt-BR')}%</span></div>
+          <div class="dv-nome">${esc(p.nome)}</div>
+          <div class="dv-big">${money(p.agora)}</div>
+          <div class="dv-sub">pode resgatar agora</div>
+          <div class="dv-bar"><i style="width:${Math.max(2,100*p.cota/maxVal)}%"></i></div>
+          <dl class="dv-dl">
+            <dt>Cota do período</dt><dd>${money(p.cota)}</dd>
+            <dt>Já retirou</dt><dd>${money(p.ret)}</dd>
+            <dt>Devido</dt><dd>${money(p.devido)}</dd>
+            <dt>Fica para depois</dt><dd>${money(p.depois)}</dd>
+          </dl></div>`).join('')}
+      </div></div>
+    </div>
+
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr));margin-bottom:16px">
+      <div class="card"><div class="card-h"><div><h3>Insights e sugestões</h3><p>Para manter o caixa em ${money(reserva)}</p></div></div>
+        <div class="card-b dv-ins">${ins.length?ins.map(i=>`<div class="dv-i dv-${i.nivel}"><span>${ICO[i.nivel]}</span><div><b>${esc(i.t)}</b><p>${esc(i.d)}</p></div></div>`).join(''):'<p style="color:var(--text-muted)">Sem alertas.</p>'}</div></div>
+      <div class="card"><div class="card-h"><div><h3>Parâmetros</h3><p>Ficam salvos só neste navegador; não alteram o painel</p></div></div>
+        <div class="card-b"><div class="frow">
+          ${fld('Reserva de giro (R$)', inp('dv_reserva','text', NUM.format(reserva), 'data-money="1" inputmode="decimal"'))}
+          ${fld('% '+partes[0].nome, inp('dv_g','number', cfg.g, 'min="0" max="100" step="0.5"'))}
+          ${fld('% '+partes[1].nome, inp('dv_f','number', cfg.f, 'min="0" max="100" step="0.5"'))}
+          ${fld('% ADM', inp('dv_adm','number', cfg.adm, 'min="0" max="100" step="0.5"'))}
+          ${fld('% Posto', inp('dv_posto','number', cfg.posto, 'min="0" max="100" step="0.5"'))}
+        </div>
+        <p style="font-size:12px;color:var(--text-muted);margin:10px 0 0">A reserva não entra na conta do dividendo: ela só limita quanto pode sair do caixa agora. O resultado vem do painel (período escolhido no topo).</p></div></div>
+    </div>`;
+
+  const num = v => { const n = Number(String(v).replace(/\./g,'').replace(',','.')); return isFinite(n)?n:0; };
+  const salvar = () => { dvGravar({
+    reserva: num($('[name=dv_reserva]').value), g: Number($('[name=dv_g]').value)||0, f: Number($('[name=dv_f]').value)||0,
+    adm: Number($('[name=dv_adm]').value)||0, posto: Number($('[name=dv_posto]').value)||0 }); render(); };
+  ['dv_reserva','dv_g','dv_f','dv_adm','dv_posto'].forEach(n=>{ const el=$('[name='+n+']'); el && el.addEventListener('change', salvar); });
 }
 
 /* ============================================================

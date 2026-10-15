@@ -188,6 +188,44 @@ header.top .sub{font-size:12px;color:var(--text-muted);margin-top:1px}
 .tile .foot{font-size:11.5px;color:var(--text-secondary);margin-top:5px;display:flex;align-items:center;gap:5px}
 .pos{color:var(--good-ink)} .neg{color:var(--critical)}
 
+
+/* ---- cards coloridos (padrao para todas as abas) ---- */
+.tiles>.tile:not(.tile-c):nth-child(8n+1){--c:var(--s1)}.tiles>.tile:not(.tile-c):nth-child(8n+2){--c:var(--s3)}
+.tiles>.tile:not(.tile-c):nth-child(8n+3){--c:var(--s2)}.tiles>.tile:not(.tile-c):nth-child(8n+4){--c:var(--s4)}
+.tiles>.tile:not(.tile-c):nth-child(8n+5){--c:var(--s7)}.tiles>.tile:not(.tile-c):nth-child(8n+6){--c:var(--s5)}
+.tiles>.tile:not(.tile-c):nth-child(8n+7){--c:var(--s6)}.tiles>.tile:not(.tile-c):nth-child(8n+8){--c:var(--s8)}
+.tile{position:relative;overflow:hidden;transition:transform .15s,box-shadow .15s}
+.tile:hover{transform:translateY(-2px);box-shadow:var(--shadow-md)}
+.tiles>.tile:not([style*="background"]){
+  --c:var(--c,var(--s1));
+  background:linear-gradient(135deg,color-mix(in srgb,var(--c,#2a78d6) 15%,#fff) 0%,color-mix(in srgb,var(--c,#2a78d6) 3%,#fff) 70%);
+  border-color:color-mix(in srgb,var(--c,#2a78d6) 24%,transparent);
+  border-top:3px solid var(--c,#2a78d6);
+}
+.tiles>.tile:not([style*="background"]) .lbl{color:color-mix(in srgb,var(--c,#2a78d6) 70%,#243442)}
+.tiles>.tile:not([style*="background"])::after{content:"";position:absolute;right:-22px;bottom:-22px;width:80px;height:80px;border-radius:50%;background:var(--c,#2a78d6);opacity:.09}
+.card:has(>.card-h){border-top:3px solid var(--s1)}
+.grid>.card:has(>.card-h):nth-child(4n+2){border-top-color:var(--s3)}
+.grid>.card:has(>.card-h):nth-child(4n+3){border-top-color:var(--s2)}
+.grid>.card:has(>.card-h):nth-child(4n+4){border-top-color:var(--s7)}
+.card>.card-h{background:linear-gradient(180deg,rgba(42,120,214,.06),transparent);border-radius:var(--radius) var(--radius) 0 0;padding-bottom:6px}
+
+/* ---- aba Dividendos ---- */
+.dv-grid{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+.dv-card{position:relative;overflow:hidden;border-radius:var(--radius);padding:16px 17px;border:1px solid color-mix(in srgb,var(--c) 30%,transparent);
+  background:linear-gradient(145deg,color-mix(in srgb,var(--c) 18%,#fff),color-mix(in srgb,var(--c) 4%,#fff) 75%);border-top:4px solid var(--c)}
+.dv-top{display:flex;justify-content:space-between;align-items:center}
+.dv-tag{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:color-mix(in srgb,var(--c) 75%,#243442)}
+.dv-pct{background:var(--c);color:#fff;font-weight:700;font-size:12px;padding:2px 9px;border-radius:99px}
+.dv-nome{font-size:16px;font-weight:700;margin-top:8px}
+.dv-big{font-size:26px;font-weight:750;letter-spacing:-.03em;margin-top:4px;color:color-mix(in srgb,var(--c) 80%,#0f1b24)}
+.dv-sub{font-size:11.5px;color:var(--text-secondary)}
+.dv-bar{height:6px;background:rgba(15,27,36,.08);border-radius:9px;margin:10px 0 8px;overflow:hidden}.dv-bar i{display:block;height:100%;background:var(--c);border-radius:9px}
+.dv-dl{display:grid;grid-template-columns:1fr auto;gap:3px 10px;margin:0;font-size:12px}.dv-dl dt{color:var(--text-secondary)}.dv-dl dd{margin:0;text-align:right;font-weight:600}
+.dv-ins{display:flex;flex-direction:column;gap:9px}
+.dv-i{display:flex;gap:10px;padding:10px 12px;border-radius:10px;border-left:4px solid var(--s1);background:rgba(42,120,214,.07)}
+.dv-i p{margin:2px 0 0;font-size:12.5px;color:var(--text-secondary)}.dv-i b{font-size:13px}
+.dv-ok{border-color:var(--s3);background:rgba(27,175,122,.09)}.dv-warn{border-color:var(--s4);background:rgba(237,161,0,.10)}.dv-bad{border-color:var(--s8);background:rgba(227,73,72,.09)}
 .chart-wrap{position:relative;height:288px}
 .chart-wrap.tall{height:330px}
 .legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:12px;padding-top:11px;border-top:1px solid var(--grid)}
@@ -413,7 +451,7 @@ if (/github\.io$/.test(location.hostname)) {
   });
 }
 </script>
-<script src="app.js?v=01182eba"></script>
+<script src="app.js?v=90f34376"></script>
 <script>
 if ('serviceWorker' in navigator) {
   let recarregando = false;
