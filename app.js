@@ -122,7 +122,7 @@ const PAGES = [
   {id:'despesas', nome:'Despesas', icon:I.exp, sub:'Custos e despesas por centro de custo'},
   {id:'receber', nome:'A receber', icon:I.recv, sub:'Títulos em aberto por cliente'},
   {sec:'Controle'},
-  {id:'acerto', nome:'Acerto de contas', icon:I.swap, sub:'Dinheiro e combustível com os postos do grupo'},
+  {id:'acerto', oculto:true, nome:'Acerto de contas', icon:I.swap, sub:'Dinheiro e combustível com os postos do grupo'},
   {id:'creditos', nome:'Créditos', icon:I.hand, sub:'O que terceiros devem ao posto'},
   {id:'saldo', nome:'Saldo', icon:I.bank, sub:'Saldo bancário do posto (FinBank)'},
   {id:'conciliacao', nome:'Conciliação', icon:I.bank, sub:'Extratos bancários e vínculos'},
@@ -199,7 +199,7 @@ async function loadCadastros(){
    SHELL
    ============================================================ */
 function buildNav(){
-  $('#nav').innerHTML = PAGES.map(p => p.sec
+  $('#nav').innerHTML = PAGES.filter(p=>!p.oculto).map(p => p.sec
     ? `<div class="nav-sec">${esc(p.sec)}</div>`
     : `<a href="#${p.id}" data-p="${p.id}">${svg(p.icon,17)}<span>${esc(p.nome)}</span></a>`
   ).join('');
