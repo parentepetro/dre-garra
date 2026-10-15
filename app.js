@@ -2127,9 +2127,11 @@ async function pageCreditos(){
       ${tile('Total a receber', money(aberto), `${todos.filter(c=>c.status!=='recebido').length} item(ns) em aberto`, PAL[2])}
       ${tile('Já recebido', money(recebido), total?`${pct(recebido,total)} do total`:'', PAL[0])}
       ${tile('Crédito total', money(total), `${todos.length} lançamento${todos.length===1?'':'s'}`, PAL[6])}
-      ${devedores[0] ? tile('Maior devedor', money(devedores[0].ab),
-        `${esc(devedores[0].d)} · desde ${brDate(devedores[0].antiga)}`, PAL[3]) : ''}
     </div>
+    ${devedores.length ? `<div class="grid tiles" style="margin-bottom:16px">
+      ${devedores.map((x,i)=>tile('Deve: '+x.d, money(x.ab),
+        `${x.n} lançamento${x.n===1?'':'s'}${x.rec?' · recebido '+money(x.rec):''} · desde ${brDate(x.antiga)}`, PAL[(i+3)%8])).join('')}
+    </div>` : ''}
 
     ${todos.length ? `<div class="grid" style="margin-bottom:16px">
       ${vizCard({ title:'Quem deve ao Garra', sub:'Saldo em aberto por devedor', canvas:'chCrDev',
